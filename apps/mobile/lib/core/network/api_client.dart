@@ -1,0 +1,267 @@
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
+
+import '../config.dart';
+
+/// Thrown when the backend returns a non-success status or is unreachable.
+class ApiException implements Exception {
+  final int statusCode;
+  final String message;
+  ApiException(this.statusCode, this.message);
+
+  @override
+  String toString() => message;
+}
+
+/// Real HTTP client for the ConFriKa backend. No demo/offline fallbacks —
+/// callers get real data or a real error.
+class ConFriKaApiClient {
+  static final ConFriKaApiClient instance = ConFriKaApiClient._();
+  ConFriKaApiClient._();
+
+  final String baseUrl = AppConfig.apiBaseUrl;
+  String? _authToken;
+
+  void setAuthToken(String? token) => _authToken = token;
+  String? get authToken => _authToken;
+
+  Map<String, String> get _headers {
+    final map = {'Content-Type': 'application/json', 'Accept': 'application/json'};
+    if (_authToken != null) map['Authorization'] = 'Bearer $_authToken';
+    return map;
+  }
+
+  Uri _uri(String path, [Map<String, dynamic>? query]) =>
+      Uri.parse('$baseUrl$path').replace(
+        queryParameters: query?.map((k, v) => MapEntry(k, '$v')),
+      );
+
+  Never _fail(http.Response res) {
+    String msg;
+    try {
+      final body = jsonDecode(res.body);
+      msg = (body is Map && body['detail'] != null)
+          ? body['detail'].toString()
+          : res.body;
+    } catch (_) {
+      msg = res.body.isEmpty ? 'Request failed (${res.statusCode})' : res.body;
+    }
+    throw ApiException(res.statusCode, msg);
+  }
+
+  Future<dynamic> _get(String path, [Map<String, dynamic>? query]) async {
+    try {
+      final res = await http
+          .get(_uri(path, query), headers: _headers)
+          .timeout(const Duration(seconds: 20));
+      if (res.statusCode >= 200 && res.statusCode < 300) return jsonDecode(res.body);
+      _fail(res);
+    } on ApiException {
+      rethrow;
+    } catch (e) {
+      throw ApiException(0, 'Network error: $e');
+    }
+  }
+
+  Future<dynamic> _post(String path, Map<String, dynamic> body) async {
+    try {
+      final res = await http
+          .post(_uri(path), headers: _headers, body: jsonEncode(body))
+          .timeout(const Duration(seconds: 30));
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        return res.body.isEmpty ? null : jsonDecode(res.body);
+      }
+      _fail(res);
+    } on ApiException {
+      rethrow;
+    } catch (e) {
+      throw ApiException(0, 'Network error: $e');
+    }
+  }
+
+  Future<dynamic> _put(String path, Map<String, dynamic> body) async {
+    try {
+      final res = await http
+          .put(_uri(path), headers: _headers, body: jsonEncode(body))
+          .timeout(const Duration(seconds: 20));
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        return res.body.isEmpty ? null : jsonDecode(res.body);
+      }
+      _fail(res);
+    } on ApiException {
+      rethrow;
+    } catch (e) {
+      throw ApiException(0, 'Network error: $e');
+    }
+  }
+
+  // ── Health ────────────────────────────────────────────────────────────
+  Future<Map<String, dynamic>> health() async =>
+      (await _get('/health')) as Map<String, dynamic>;
+
+  // ── Auth ──────────────────────────────────────────────────────────────
+  Future<Map<String, dynamic>> signUp({
+    required String email,
+    required String password,
+    required String fullName,
+    required String username,
+    required String countryCode,
+    required String originRegion,
+    required String primaryDialect,
+  }) async {
+    final data = await _post('/api/v1/auth/signup', {
+      'email': email,
+      'password': password,
+      'full_name': fullName,
+      'username': username,
+      'country_code': countryCode,
+      'origin_region': originRegion,
+      'primary_dialect': primaryDialect,
+    }) as Map<String, dynamic>;
+    setAuthToken(data['access_token'] as String?);
+    return data;
+  }
+
+  Future<Map<String, dynamic>> login({
+    required String emailOrUsername,
+    required String password,
+  }) async {
+    final data = await _post('/api/v1/auth/login', {
+      'email_or_username': emailOrUsername,
+      'password': password,
+    }) as Map<String, dynamic>;
+    setAuthToken(data['access_token'] as String?);
+    return data;
+  }
+
+  Future<Map<String, dynamic>> me() async =>
+      (await _get('/api/v1/auth/me')) as Map<String, dynamic>;
+
+  Future<void> updateTonalBaseline(double f0Hz) async {
+    await _put('/api/v1/auth/me/tonal-baseline', {'f0_baseline_hz': f0Hz});
+  }
+
+  // ── Translation ─────────────────────────────────────────────────────────
+  Future<Map<String, dynamic>> translate({
+    required String text,
+    required String sourceDialect,
+    required String targetDialect,
+    String formality = 'respectful',
+  }) async {
+    return (await _post('/api/v1/speech/translate', {
+      'text': text,
+      'source_dialect': sourceDialect,
+      'target_dialect': targetDialect,
+      'respect_tones': true,
+      'formality': formality,
+    })) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> analyzePitch(String wavPath,
+      {double baselineF0Hz = 138.0}) async {
+    final req = http.MultipartRequest(
+      'POST',
+      _uri('/api/v1/speech/pitch-analysis', {'baseline_f0_hz': baselineF0Hz}),
+    );
+    if (_authToken != null) req.headers['Authorization'] = 'Bearer $_authToken';
+    req.files.add(await http.MultipartFile.fromPath('audio', wavPath));
+    try {
+      final streamed = await req.send().timeout(const Duration(seconds: 30));
+      final res = await http.Response.fromStream(streamed);
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        return jsonDecode(res.body) as Map<String, dynamic>;
+      }
+      _fail(res);
+    } on ApiException {
+      rethrow;
+    } catch (e) {
+      throw ApiException(0, 'Network error: $e');
+    }
+  }
+
+  // ── Contacts ──────────────────────────────────────────────────────────
+  Future<List<dynamic>> contacts() async =>
+      (await _get('/api/v1/contacts')) as List<dynamic>;
+
+  Future<Map<String, dynamic>> addContact(String username,
+      {String? alias, String? preferredLanguage}) async {
+    return (await _post('/api/v1/contacts', {
+      'username': username,
+      if (alias != null) 'alias_name': alias,
+      if (preferredLanguage != null) 'preferred_language': preferredLanguage,
+    })) as Map<String, dynamic>;
+  }
+
+  Future<List<dynamic>> searchDirectory(String query) async =>
+      (await _get('/api/v1/contacts/search', {'q': query})) as List<dynamic>;
+
+  // ── Chat ──────────────────────────────────────────────────────────────
+  Future<List<dynamic>> directMessages(String username) async =>
+      (await _get('/api/v1/chat/dm/${Uri.encodeComponent(username)}')) as List<dynamic>;
+
+  Future<Map<String, dynamic>> sendDirectMessage({
+    required String recipientUsername,
+    required String text,
+    required String sourceDialect,
+    String? targetDialect,
+    bool autoTranslate = true,
+  }) async {
+    return (await _post('/api/v1/chat/dm', {
+      'recipient_username': recipientUsername,
+      'original_text': text,
+      'source_dialect': sourceDialect,
+      if (targetDialect != null) 'target_dialect': targetDialect,
+      'auto_translate': autoTranslate,
+    })) as Map<String, dynamic>;
+  }
+
+  Future<List<dynamic>> spaces({String channel = 'all', String country = 'ALL'}) async =>
+      (await _get('/api/v1/chat/spaces', {'channel': channel, 'country': country}))
+          as List<dynamic>;
+
+  Future<Map<String, dynamic>> postSpaces({
+    required String text,
+    required String sourceDialect,
+    String channel = 'all',
+    String country = 'ALL',
+    bool autoTranslate = true,
+  }) async {
+    return (await _post('/api/v1/chat/spaces', {
+      'original_text': text,
+      'source_dialect': sourceDialect,
+      'channel_category': channel,
+      'country_filter': country,
+      'auto_translate': autoTranslate,
+    })) as Map<String, dynamic>;
+  }
+
+  // ── Tone coach ──────────────────────────────────────────────────────────
+  Future<List<dynamic>> minimalPairs() async =>
+      (await _get('/api/v1/tone-coach/minimal-pairs')) as List<dynamic>;
+
+  Future<Map<String, dynamic>> calibrateTone({
+    required String targetWordId,
+    required List<double> learnerSemitones,
+    double baselineF0Hz = 138.0,
+  }) async {
+    return (await _post('/api/v1/tone-coach/calibrate', {
+      'user_baseline_f0_hz': baselineF0Hz,
+      'target_word_id': targetWordId,
+      'learner_semitones': learnerSemitones,
+    })) as Map<String, dynamic>;
+  }
+
+  // ── Calls ─────────────────────────────────────────────────────────────
+  Future<Map<String, dynamic>> iceServers() async =>
+      (await _get('/api/v1/calls/ice-servers')) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> initiateCall(String calleeUsername,
+      {String transport = 'inapp', String? sdpOffer}) async {
+    return (await _post('/api/v1/calls/initiate', {
+      'callee_username': calleeUsername,
+      'call_transport': transport,
+      if (sdpOffer != null) 'sdp_offer': sdpOffer,
+    })) as Map<String, dynamic>;
+  }
+}
