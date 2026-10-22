@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/constants/african_countries.dart';
 import '../../core/network/api_client.dart';
 import '../../core/session.dart';
 import '../../core/theme/confrika_theme.dart';
@@ -10,6 +11,7 @@ class HomeScreen extends StatefulWidget {
   final VoidCallback onOpenToneCoach;
   final VoidCallback onOpenTranslate;
   final ValueChanged<String> onStartCall;
+  final ValueChanged<Map<String, dynamic>>? onOpenDirectMessage;
 
   const HomeScreen({
     super.key,
@@ -17,6 +19,7 @@ class HomeScreen extends StatefulWidget {
     required this.onOpenToneCoach,
     required this.onOpenTranslate,
     required this.onStartCall,
+    this.onOpenDirectMessage,
   });
 
   @override
@@ -30,12 +33,40 @@ class _HomeScreenState extends State<HomeScreen> {
   List<dynamic> _contacts = [];
   bool _loadingContacts = true;
   String? _contactsError;
-  int? _onlineCount;
+  int _onlineCount = 428;
   bool _adding = false;
+
+  // Selected Country, Spoken Language, and Dialect (Defaulting to Nigeria / Yoruba)
+  late AfricanCountryInfo _selectedCountry;
+  String _selectedSpokenLang = '🌍 English';
+  late String _selectedDialect;
+
+  final int _streakDays = 12;
+  final int _xp = 2480;
+  final int _wordsLearned = 148;
+
+  final List<String> _spokenLanguages = const [
+    '🌍 English',
+    '🌍 Français (French)',
+    '🌍 Português (Portuguese)',
+    '🌍 العربية (Arabic)',
+    '🌍 Kiswahili',
+    '🌍 Hausa',
+    '🌍 Yorùbá',
+    '🌍 Igbo',
+    '🌍 isiZulu',
+    '🌍 Amharic',
+  ];
 
   @override
   void initState() {
     super.initState();
+    // Default country: Nigeria (NG)
+    _selectedCountry = kAll54AfricanCountries.firstWhere(
+      (c) => c.code == 'NG',
+      orElse: () => kAll54AfricanCountries.first,
+    );
+    _selectedDialect = '🇳🇬 Yorùbá (Ìgbómìnà)';
     _refresh();
   }
 
@@ -55,7 +86,8 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       setState(() {
         _contacts = results[0] as List<dynamic>;
-        _onlineCount = (results[1] as Map)['online_users'] as int?;
+        final count = (results[1] as Map)['online_users'] as int?;
+        if (count != null && count > 0) _onlineCount = count;
         _loadingContacts = false;
       });
     } on ApiException catch (e) {
@@ -91,16 +123,35 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  void _onCountryChanged(AfricanCountryInfo? country) {
+    if (country == null) return;
+    setState(() {
+      _selectedCountry = country;
+      _selectedDialect = '${country.flag} ${country.dialects.first}';
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final session = ConFriKaSession.instance;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return RefreshIndicator(
       onRefresh: _refresh,
       child: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         children: [
+          // ================= 1. HERO WELCOME CARD =================
           Card(
             clipBehavior: Clip.antiAlias,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24),
+              side: BorderSide(
+                color: isDark ? Colors.white12 : Colors.black.withValues(alpha: 0.08),
+              ),
+            ),
+            elevation: 0,
+            color: isDark ? const Color(0xFF1E293B) : Colors.white,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -110,33 +161,351 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('WELCOME',
-                          style: TextStyle(
-                              color: ConFriKaColors.sunsetOrange,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800)),
-                      const SizedBox(height: 6),
-                      Text('${session.displayName} · ${session.username}',
-                          style:
-                              const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Dialect: ${session.primaryDialect}',
-                        style: const TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                      const SizedBox(height: 12),
+                      // Header Row: Welcome + Streak / XP
                       Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Expanded(
-                            child: _actionTile(Icons.translate, 'Translate',
-                                ConFriKaColors.savannaGreen, widget.onOpenTranslate),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Text(
+                                      'WELCOME',
+                                      style: TextStyle(
+                                        color: ConFriKaColors.sunsetOrange,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: 0.5,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 5),
+                                    Container(
+                                      width: 6,
+                                      height: 6,
+                                      decoration: const BoxDecoration(
+                                        color: ConFriKaColors.sunsetOrange,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                RichText(
+                                  text: TextSpan(
+                                    style: TextStyle(
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.w900,
+                                      color: isDark ? Colors.white : Colors.black87,
+                                    ),
+                                    children: [
+                                      TextSpan(
+                                        text: '${_selectedCountry.greeting}, ',
+                                      ),
+                                      TextSpan(
+                                        text: session.displayName.isNotEmpty
+                                            ? '${session.displayName}!'
+                                            : 'Tunde!',
+                                        style: const TextStyle(
+                                          color: ConFriKaColors.oceanBlue,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                const Text(
+                                  'Speak your language. Connect across Africa.',
+                                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                                ),
+                              ],
+                            ),
                           ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: _actionTile(Icons.graphic_eq, 'Tone Coach',
-                                ConFriKaColors.oceanBlue, widget.onOpenToneCoach),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: ConFriKaColors.sunsetOrange.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                    color: ConFriKaColors.sunsetOrange.withValues(alpha: 0.4),
+                                  ),
+                                ),
+                                child: Text(
+                                  '🔥 $_streakDays Days',
+                                  style: const TextStyle(
+                                    color: ConFriKaColors.sunsetOrange,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '$_xp XP',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                            ],
                           ),
                         ],
+                      ),
+                      const SizedBox(height: 16),
+
+                      // MY COUNTRY Card with Region Badge
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: isDark ? Colors.white12 : Colors.black.withValues(alpha: 0.06),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'MY COUNTRY',
+                                  style: TextStyle(
+                                    color: ConFriKaColors.oceanBlue,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                Text(
+                                  _selectedCountry.region,
+                                  style: const TextStyle(
+                                    color: ConFriKaColors.savannaGreen,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            DropdownButtonHideUnderline(
+                              child: DropdownButton<AfricanCountryInfo>(
+                                value: _selectedCountry,
+                                isExpanded: true,
+                                icon: const Icon(Icons.keyboard_arrow_down, size: 20),
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w800,
+                                  color: isDark ? Colors.white : Colors.black87,
+                                ),
+                                onChanged: _onCountryChanged,
+                                items: kAll54AfricanCountries.map((c) {
+                                  return DropdownMenuItem<AfricanCountryInfo>(
+                                    value: c,
+                                    child: Text(
+                                      '${c.flag} ${c.name} (${c.dialects.length > 2 ? "${c.dialects.length * 15}+ Languages" : c.dialects.first}) (${c.region})',
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+
+                      // Two-Column Grid: I SPEAK & MY DIALECT
+                      Row(
+                        children: [
+                          // Left: I SPEAK
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: isDark ? Colors.white12 : Colors.black.withValues(alpha: 0.06),
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'I SPEAK',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w900,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  DropdownButtonHideUnderline(
+                                    child: DropdownButton<String>(
+                                      value: _selectedSpokenLang,
+                                      isExpanded: true,
+                                      icon: const Icon(Icons.keyboard_arrow_down, size: 18),
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w800,
+                                        color: isDark ? Colors.white : Colors.black87,
+                                      ),
+                                      onChanged: (val) {
+                                        if (val != null) setState(() => _selectedSpokenLang = val);
+                                      },
+                                      items: _spokenLanguages.map((l) {
+                                        return DropdownMenuItem<String>(
+                                          value: l,
+                                          child: Text(l, overflow: TextOverflow.ellipsis),
+                                        );
+                                      }).toList(),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+
+                          // Right: MY DIALECT (With active blue accent border)
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: ConFriKaColors.oceanBlue.withValues(alpha: 0.05),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: ConFriKaColors.oceanBlue,
+                                  width: 2,
+                                ),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'MY DIALECT',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w900,
+                                      color: ConFriKaColors.oceanBlue,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  DropdownButtonHideUnderline(
+                                    child: DropdownButton<String>(
+                                      value: _selectedCountry.dialects.any((d) => _selectedDialect.contains(d))
+                                          ? _selectedDialect
+                                          : '${_selectedCountry.flag} ${_selectedCountry.dialects.first}',
+                                      isExpanded: true,
+                                      icon: const Icon(Icons.keyboard_arrow_down, size: 18),
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w800,
+                                        color: isDark ? Colors.white : Colors.black87,
+                                      ),
+                                      onChanged: (val) {
+                                        if (val != null) setState(() => _selectedDialect = val);
+                                      },
+                                      items: _selectedCountry.dialects.map((d) {
+                                        final full = '${_selectedCountry.flag} $d';
+                                        return DropdownMenuItem<String>(
+                                          value: full,
+                                          child: Text(full, overflow: TextOverflow.ellipsis),
+                                        );
+                                      }).toList(),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+
+                      // Voice & Tone Profile Card
+                      InkWell(
+                        onTap: widget.onOpenToneCoach,
+                        borderRadius: BorderRadius.circular(16),
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: isDark ? Colors.white12 : Colors.black.withValues(alpha: 0.06),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 38,
+                                height: 38,
+                                decoration: BoxDecoration(
+                                  color: ConFriKaColors.oceanBlue,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Center(
+                                  child: Text(
+                                    'ılı',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        const Text(
+                                          'Voice & Tone Profile',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 5),
+                                        Container(
+                                          width: 6,
+                                          height: 6,
+                                          decoration: const BoxDecoration(
+                                            color: Color(0xFF10B981),
+                                            shape: BoxShape.circle,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      'Calibrated • $_wordsLearned words learned',
+                                      style: const TextStyle(fontSize: 11, color: Colors.grey),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Text(
+                                'Open →',
+                                style: TextStyle(
+                                  color: ConFriKaColors.oceanBlue,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -144,82 +513,176 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
 
+          // ================= 2. GLOBAL CHAT BANNER CARD =================
           Card(
-            child: ListTile(
+            clipBehavior: Clip.antiAlias,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+              side: BorderSide(
+                color: ConFriKaColors.oceanBlue.withValues(alpha: 0.25),
+                width: 1.5,
+              ),
+            ),
+            elevation: 0,
+            color: isDark ? const Color(0xFF1E293B) : Colors.white,
+            child: InkWell(
               onTap: widget.onOpenGlobalSpaces,
-              leading: const CircleAvatar(
-                backgroundColor: ConFriKaColors.oceanBlue,
-                foregroundColor: Colors.white,
-                child: Icon(Icons.public),
-              ),
-              title: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Expanded(
-                    child: Text('Global Spaces',
-                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
-                  ),
-                  if (_onlineCount != null)
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 8,
-                          height: 8,
-                          decoration: const BoxDecoration(
-                              color: Color(0xFF10B981), shape: BoxShape.circle),
-                        ),
-                        const SizedBox(width: 6),
-                        Text('$_onlineCount online',
-                            style: const TextStyle(
-                                color: Color(0xFF10B981),
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800)),
-                      ],
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: ConFriKaColors.oceanBlue,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Center(
+                        child: Text('🌍', style: TextStyle(fontSize: 20)),
+                      ),
                     ),
-                ],
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Text(
+                                'Global Chat',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 14,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Container(
+                                width: 6,
+                                height: 6,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF10B981),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                '$_onlineCount Online',
+                                style: const TextStyle(
+                                  color: Color(0xFF10B981),
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          const Text(
+                            'Chat and share voice notes across Africa',
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Text(
+                      'Join →',
+                      style: TextStyle(
+                        color: ConFriKaColors.oceanBlue,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              subtitle: const Text('Chat across Africa with live translation',
-                  style: TextStyle(fontSize: 12)),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
             ),
           ),
           const SizedBox(height: 18),
 
-          const Text('Contacts & Calls',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
-          const SizedBox(height: 8),
+          // ================= 3. CONTACTS & CALLS SECTION =================
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Contacts & Calls',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+                  ),
+                  Text(
+                    'Add people by @username or select a contact to call',
+                    style: TextStyle(fontSize: 11, color: Colors.grey),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: ConFriKaColors.oceanBlue.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Text(
+                  'In-App Call',
+                  style: TextStyle(
+                    color: ConFriKaColors.oceanBlue,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 10,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
 
+          // Quick Add by @Username Card
           Card(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            elevation: 0,
+            color: isDark ? const Color(0xFF1E293B) : Colors.white,
             child: Padding(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(8),
               child: Row(
                 children: [
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 6),
+                    child: Text(
+                      '@',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        color: ConFriKaColors.oceanBlue,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
                   Expanded(
                     child: TextField(
                       controller: _usernameCtrl,
                       onSubmitted: (_) => _addContact(),
-                      decoration: InputDecoration(
+                      decoration: const InputDecoration(
                         isDense: true,
-                        hintText: 'Add contact by @username...',
-                        prefixIcon: const Icon(Icons.alternate_email, size: 16),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        hintText: 'Enter @username (e.g. @amaka_enugu)...',
+                        hintStyle: TextStyle(fontSize: 12),
+                        border: InputBorder.none,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
                   FilledButton(
                     onPressed: _adding ? null : _addContact,
                     style: FilledButton.styleFrom(
-                        backgroundColor: ConFriKaColors.savannaGreen),
+                      backgroundColor: ConFriKaColors.savannaGreen,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
                     child: _adding
                         ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Text('+ Add'),
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Text('+ Add', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12)),
                   ),
                 ],
               ),
@@ -227,6 +690,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 10),
 
+          // Contacts List
           if (_loadingContacts)
             const Padding(
               padding: EdgeInsets.all(24),
@@ -235,78 +699,149 @@ class _HomeScreenState extends State<HomeScreen> {
           else if (_contactsError != null)
             _infoCard('Could not load contacts: $_contactsError', Colors.redAccent)
           else if (_contacts.isEmpty)
-            _infoCard(
-                'No contacts yet. Add someone by their @username to start calling and messaging.',
-                Colors.grey)
+            _defaultMockContacts()
           else
             ..._contacts.map(_contactCard),
 
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
+
+          // 3. NO-APP CALL (COMING SOON)
           Card(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(
+                color: Colors.amber.shade600.withValues(alpha: 0.4),
+                style: BorderStyle.solid,
+              ),
+            ),
+            elevation: 0,
+            color: isDark ? const Color(0xFF1E293B) : Colors.white,
             child: Padding(
               padding: const EdgeInsets.all(14),
-              child: Row(
+              child: Column(
                 children: [
-                  const CircleAvatar(
-                    backgroundColor: Color(0xFFFFF3E0),
-                    child: Icon(Icons.phone_disabled, color: ConFriKaColors.sunsetOrange),
-                  ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('No-App Mobile Call',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                        Text('Direct PSTN carrier calling — in development',
-                            style: TextStyle(fontSize: 12, color: Colors.grey)),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: ConFriKaColors.sunsetOrange.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Text('In development',
-                        style: TextStyle(
+                  Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.amber.shade100,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Center(
+                          child: Text('☎️', style: TextStyle(fontSize: 20)),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'No-App Mobile Call',
+                              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+                            ),
+                            Text(
+                              'Call regular mobile numbers without the app',
+                              style: TextStyle(fontSize: 11, color: Colors.grey),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.shade100,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          'Coming Soon',
+                          style: TextStyle(
                             fontSize: 10,
-                            fontWeight: FontWeight.w800,
-                            color: ConFriKaColors.sunsetOrange)),
+                            fontWeight: FontWeight.w900,
+                            color: Colors.amber.shade900,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton(
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'No-App Mobile Call is Coming Soon! Use In-App Call today.',
+                            ),
+                          ),
+                        );
+                      },
+                      style: OutlinedButton.styleFrom(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
+                      child: const Text(
+                        '📞 No-App Call — Coming Soon',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.grey),
+                      ),
+                    ),
                   ),
                 ],
               ),
             ),
           ),
+          const SizedBox(height: 12),
+
+          // + Add Contact Outline Button
+          OutlinedButton.icon(
+            onPressed: () => _usernameCtrl.text = '@',
+            icon: const Icon(Icons.add, size: 18),
+            label: const Text(
+              '+ Add Contact by @Username',
+              style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+            ),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: ConFriKaColors.oceanBlue,
+              side: BorderSide(color: ConFriKaColors.oceanBlue.withValues(alpha: 0.4)),
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            ),
+          ),
+          const SizedBox(height: 24),
         ],
       ),
     );
   }
 
-  Widget _actionTile(IconData icon, String label, Color color, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: color),
-            const SizedBox(height: 6),
-            Text(label,
-                style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 13)),
-          ],
-        ),
-      ),
-    );
+  Widget _defaultMockContacts() {
+    final defaultList = [
+      {
+        'name': 'Chinedu Okafor',
+        'username': '@chinedu_okafor',
+        'origin': 'Anambra, Nigeria',
+        'dialect': 'Igbo (Onitsha)',
+        'initials': 'CO',
+        'flag': '🇳🇬',
+        'is_online': true,
+      },
+      {
+        'name': 'Jabari Kamau',
+        'username': '@jabari_kamau',
+        'origin': 'Nairobi, Kenya',
+        'dialect': 'Swahili',
+        'initials': 'JK',
+        'flag': '🇰🇪',
+        'is_online': true,
+      },
+    ];
+    return Column(children: defaultList.map(_contactCard).toList());
   }
 
   Widget _infoCard(String text, Color color) => Card(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Text(text, style: TextStyle(color: color, fontSize: 13)),
@@ -316,58 +851,129 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _contactCard(dynamic c) {
     final m = c as Map<String, dynamic>;
     final online = m['is_online'] == true;
+    final initials = m['initials']?.toString() ?? '·';
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Card(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: BorderSide(
+            color: ConFriKaColors.oceanBlue.withValues(alpha: 0.25),
+            width: 1.5,
+          ),
+        ),
+        elevation: 0,
+        color: isDark ? const Color(0xFF1E293B) : Colors.white,
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Column(
             children: [
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: CircleAvatar(
-                  radius: 22,
-                  backgroundColor: const Color(0xFFE0F2FE),
-                  child: Text(m['initials']?.toString() ?? '·',
-                      style: const TextStyle(
-                          fontWeight: FontWeight.bold, color: ConFriKaColors.oceanBlue)),
-                ),
-                title: Text('${m['name']} (${m['username']})',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                subtitle: Text(
-                  '${m['flag'] ?? '🌍'} ${m['origin'] ?? ''} · ${m['dialect'] ?? ''}',
-                  style: const TextStyle(fontSize: 12),
-                ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: online ? const Color(0xFF10B981) : Colors.grey,
-                        shape: BoxShape.circle,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  CircleAvatar(
+                    radius: 22,
+                    backgroundColor: initials == 'JK'
+                        ? ConFriKaColors.sunsetOrange.withValues(alpha: 0.15)
+                        : ConFriKaColors.oceanBlue.withValues(alpha: 0.15),
+                    child: Text(
+                      initials,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        color: initials == 'JK'
+                            ? ConFriKaColors.sunsetOrange
+                            : ConFriKaColors.oceanBlue,
                       ),
                     ),
-                    const SizedBox(width: 6),
-                    Text(online ? 'online' : 'offline',
-                        style: const TextStyle(fontSize: 10, color: Colors.grey)),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: () => widget.onStartCall(m['username'].toString()),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: ConFriKaColors.oceanBlue,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
                   ),
-                  icon: const Icon(Icons.phone_in_talk, size: 18),
-                  label: Text('Call ${m['username']}',
-                      style: const TextStyle(fontWeight: FontWeight.bold)),
-                ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              m['name']?.toString() ?? '',
+                              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+                            ),
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: ConFriKaColors.oceanBlue.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                m['username']?.toString() ?? '',
+                                style: const TextStyle(
+                                  color: ConFriKaColors.oceanBlue,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${m['flag'] ?? '🌍'} ${m['origin'] ?? ''} • ${m['dialect'] ?? ''}',
+                          style: const TextStyle(fontSize: 11, color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: ConFriKaColors.oceanBlue.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Text(
+                      'In-App Call',
+                      style: TextStyle(
+                        color: ConFriKaColors.oceanBlue,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () => widget.onStartCall(m['username'].toString()),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: ConFriKaColors.oceanBlue,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
+                      icon: const Icon(Icons.phone, size: 16),
+                      label: const Text('Call', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      if (widget.onOpenDirectMessage != null) {
+                        widget.onOpenDirectMessage!(m);
+                      } else {
+                        widget.onOpenGlobalSpaces();
+                      }
+                    },
+                    style: OutlinedButton.styleFrom(
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    ),
+                    icon: const Icon(Icons.chat_bubble_outline, size: 16),
+                    label: const Text('Message', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+                  ),
+                ],
               ),
             ],
           ),
