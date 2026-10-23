@@ -102,6 +102,101 @@ class ChatService:
         return thread
 
     @classmethod
+    async def get_conversations(
+        cls, db: AsyncSession, current_user: User
+    ) -> List[Dict[str, Any]]:
+        """WhatsApp-style conversation list: one row per chat partner with the
+        last message preview, its time, and how many messages are unread."""
+        me = current_user.username
+        # Every DM that involves me: either I sent it, or it was sent to me.
+        stmt = (
+            select(DirectMessage)
+            .join(User, User.id == DirectMessage.sender_id)
+            .where(
+                or_(
+                    DirectMessage.sender_id == current_user.id,
+                    DirectMessage.recipient_username == me,
+                )
+            )
+            .order_by(DirectMessage.created_at.asc())
+        )
+        rows = (await db.execute(stmt)).scalars().all()
+
+        # Resolve sender handle/name for each message in one pass.
+        sender_ids = {m.sender_id for m in rows}
+        users = {
+            u.id: u
+            for u in (
+                await db.scalars(select(User).where(User.id.in_(sender_ids)))
+            ).all()
+        }
+
+        convos: Dict[str, Dict[str, Any]] = {}
+        for m in rows:
+            sender = users.get(m.sender_id)
+            is_me = m.sender_id == current_user.id
+            # The "other party" of this conversation.
+            partner_handle = m.recipient_username if is_me else (
+                sender.username if sender else me
+            )
+            if partner_handle == me:
+                continue
+            convo = convos.setdefault(
+                partner_handle,
+                {
+                    "partner_username": partner_handle,
+                    "partner_name": partner_handle.lstrip("@"),
+                    "last_message": "",
+                    "last_message_type": "text",
+                    "last_at": None,
+                    "unread_count": 0,
+                    "last_is_me": False,
+                },
+            )
+            # Prefer a real display name when we know the partner user.
+            if not is_me and sender is not None:
+                convo["partner_name"] = sender.full_name
+            # Messages roll forward in time, so the final write is the latest.
+            convo["last_message"] = (
+                m.original_text if m.message_type == "text" else "🎤 Voice note"
+            )
+            convo["last_message_type"] = m.message_type
+            convo["last_at"] = m.created_at.isoformat()
+            convo["last_is_me"] = is_me
+            if (not is_me) and (not m.is_read):
+                convo["unread_count"] += 1
+
+        # Newest conversation first.
+        return sorted(
+            convos.values(),
+            key=lambda c: c["last_at"] or "",
+            reverse=True,
+        )
+
+    @classmethod
+    async def mark_thread_read(
+        cls, db: AsyncSession, current_user: User, partner_username: str
+    ) -> Dict[str, Any]:
+        """Mark every message the partner sent me in this thread as read."""
+        partner_handle = normalize_username(partner_username)
+        partner = await db.scalar(select(User).where(User.username == partner_handle))
+        if partner is None:
+            return {"status": "ok", "marked": 0}
+        rows = (
+            await db.scalars(
+                select(DirectMessage).where(
+                    (DirectMessage.sender_id == partner.id)
+                    & (DirectMessage.recipient_username == current_user.username)
+                    & (DirectMessage.is_read == False)  # noqa: E712
+                )
+            )
+        ).all()
+        for m in rows:
+            m.is_read = True
+        await db.commit()
+        return {"status": "ok", "marked": len(rows)}
+
+    @classmethod
     async def send_direct_message(
         cls, db: AsyncSession, current_user: User, req: SendDmRequest
     ) -> Dict[str, Any]:

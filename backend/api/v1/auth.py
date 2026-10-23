@@ -90,13 +90,22 @@ async def reset_password(req: ResetPasswordRequest, db: AsyncSession = Depends(g
     return await AuthService.reset_password(db, req)
 
 
+@router.post("/change-password/request-otp", response_model=OtpSentResponse)
+async def request_change_password_otp(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Email the signed-in user a one-time code to authorize a password change."""
+    return await AuthService.request_change_password_otp(db, current_user)
+
+
 @router.post("/change-password")
 async def change_password(
     req: ChangePasswordRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Change the password for the signed-in user."""
+    """Change the password for the signed-in user (requires an emailed OTP)."""
     return await AuthService.change_password(db, current_user, req)
 
 

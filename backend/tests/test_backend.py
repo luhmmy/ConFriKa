@@ -100,6 +100,30 @@ def test_signup_rejects_invalid_country():
         )
 
 
+def test_change_password_requires_otp_code():
+    try:
+        from backend.services.auth_service import ChangePasswordRequest
+    except ImportError:
+        from services.auth_service import ChangePasswordRequest
+
+    # A valid change request must carry the emailed OTP code.
+    req = ChangePasswordRequest(
+        current_password="OldPass123",
+        new_password="NewPass123",
+        code="123456",
+    )
+    assert req.code == "123456"
+
+    # Omitting the code is rejected — change-password is now OTP-gated.
+    with pytest.raises(ValueError):
+        ChangePasswordRequest(current_password="OldPass123", new_password="NewPass123")
+    # A weak new password is still rejected.
+    with pytest.raises(ValueError):
+        ChangePasswordRequest(
+            current_password="OldPass123", new_password="weak", code="123456"
+        )
+
+
 def test_password_hash_roundtrip():
     h = hash_password("StrongPass123")
     assert h != "StrongPass123"

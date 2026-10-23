@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/network/api_client.dart';
 import '../../core/theme/confrika_theme.dart';
@@ -14,14 +15,19 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   final _currentCtrl = TextEditingController();
   final _newCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
+  final _codeCtrl = TextEditingController();
+
   bool _busy = false;
+  bool _codeSent = false;
   String? _error;
+  String? _info;
 
   @override
   void dispose() {
     _currentCtrl.dispose();
     _newCtrl.dispose();
     _confirmCtrl.dispose();
+    _codeCtrl.dispose();
     super.dispose();
   }
 
@@ -33,18 +39,52 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     return null;
   }
 
-  Future<void> _save() async {
-    if (_currentCtrl.text.isEmpty) {
-      setState(() => _error = 'Enter your current password.');
-      return;
-    }
+  /// Validate the passwords locally before we bother emailing a code.
+  String? _validatePasswords() {
+    if (_currentCtrl.text.isEmpty) return 'Enter your current password.';
     final perr = _passwordError(_newCtrl.text);
-    if (perr != null) {
-      setState(() => _error = perr);
+    if (perr != null) return perr;
+    if (_newCtrl.text != _confirmCtrl.text) return 'New passwords do not match.';
+    return null;
+  }
+
+  Future<void> _sendCode() async {
+    final err = _validatePasswords();
+    if (err != null) {
+      setState(() => _error = err);
       return;
     }
-    if (_newCtrl.text != _confirmCtrl.text) {
-      setState(() => _error = 'New passwords do not match.');
+    setState(() {
+      _busy = true;
+      _error = null;
+      _info = null;
+    });
+    try {
+      final res =
+          await ConFriKaApiClient.instance.requestChangePasswordOtp();
+      final debugCode = res['debug_code'] as String?;
+      setState(() {
+        _codeSent = true;
+        _info = debugCode != null
+            ? 'Dev mode: your code is $debugCode'
+            : 'We emailed a 6-digit code to confirm this change.';
+        if (debugCode != null) _codeCtrl.text = debugCode;
+      });
+    } on ApiException catch (e) {
+      setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _save() async {
+    final err = _validatePasswords();
+    if (err != null) {
+      setState(() => _error = err);
+      return;
+    }
+    if (_codeCtrl.text.trim().length < 4) {
+      setState(() => _error = 'Enter the code we emailed you.');
       return;
     }
     setState(() {
@@ -55,6 +95,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       await ConFriKaApiClient.instance.changePassword(
         currentPassword: _currentCtrl.text,
         newPassword: _newCtrl.text,
+        code: _codeCtrl.text.trim(),
       );
       if (mounted) {
         Navigator.of(context).pop();
@@ -80,19 +121,17 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               if (_error != null) ...[
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(_error!, style: const TextStyle(color: Colors.red, fontSize: 12)),
-                ),
+                _banner(_error!, Colors.red),
+                const SizedBox(height: 12),
+              ],
+              if (_info != null) ...[
+                _banner(_info!, ConFriKaColors.oceanBlue),
                 const SizedBox(height: 12),
               ],
               TextField(
                 controller: _currentCtrl,
                 obscureText: true,
+                enabled: !_codeSent,
                 decoration: const InputDecoration(
                   labelText: 'Current password',
                   prefixIcon: Icon(Icons.lock_outline),
@@ -103,6 +142,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
               TextField(
                 controller: _newCtrl,
                 obscureText: true,
+                enabled: !_codeSent,
                 decoration: const InputDecoration(
                   labelText: 'New password',
                   helperText: 'Min 8 chars, with uppercase, lowercase & a number',
@@ -114,7 +154,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
               TextField(
                 controller: _confirmCtrl,
                 obscureText: true,
-                onSubmitted: (_) => _save(),
+                enabled: !_codeSent,
                 decoration: const InputDecoration(
                   labelText: 'Confirm new password',
                   prefixIcon: Icon(Icons.lock_outline),
@@ -122,22 +162,73 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                 ),
               ),
               const SizedBox(height: 18),
-              FilledButton(
-                onPressed: _busy ? null : _save,
-                style: FilledButton.styleFrom(
-                  backgroundColor: ConFriKaColors.oceanBlue,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
+              if (!_codeSent)
+                FilledButton(
+                  onPressed: _busy ? null : _sendCode,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: ConFriKaColors.oceanBlue,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: _busy
+                      ? const _Spinner()
+                      : const Text('Email me a verification code',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
+                )
+              else ...[
+                TextField(
+                  controller: _codeCtrl,
+                  keyboardType: TextInputType.number,
+                  maxLength: 6,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  onSubmitted: (_) => _save(),
+                  decoration: const InputDecoration(
+                    labelText: 'Verification code',
+                    prefixIcon: Icon(Icons.mark_email_read_outlined),
+                    border: OutlineInputBorder(),
+                    counterText: '',
+                  ),
                 ),
-                child: _busy
-                    ? const SizedBox(
-                        width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Text('Save new password',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
-              ),
+                const SizedBox(height: 6),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: _busy ? null : _sendCode,
+                    child: const Text('Resend code'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                FilledButton(
+                  onPressed: _busy ? null : _save,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: ConFriKaColors.oceanBlue,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: _busy
+                      ? const _Spinner()
+                      : const Text('Confirm & change password',
+                          style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ],
             ],
           ),
         ),
       ),
     );
   }
+
+  Widget _banner(String text, Color color) => Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Text(text, style: TextStyle(color: color, fontSize: 12)),
+      );
+}
+
+class _Spinner extends StatelessWidget {
+  const _Spinner();
+  @override
+  Widget build(BuildContext context) => const SizedBox(
+      width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2));
 }

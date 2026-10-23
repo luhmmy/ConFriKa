@@ -8,6 +8,7 @@ import '../../core/widgets/confrika_brand_widgets.dart';
 import '../connect/connect_call_screen.dart';
 import '../home/home_screen.dart';
 import '../learn/learn_and_tone_coach_screen.dart';
+import '../messages/direct_messages_screen.dart';
 import '../profile/profile_and_trust_screen.dart';
 import '../spaces/global_spaces_chat_screen.dart';
 import '../translate/translate_screen.dart';
@@ -94,8 +95,16 @@ class _ConFriKaShellState extends State<ConFriKaShell> {
 
   void _openDirectMessage(Map<String, dynamic> contact) {
     setState(() {
-      _currentIndex = 1; // Switches to Global Spaces / Direct Messages tab
+      _currentIndex = 1; // Switches to the private Chats (Direct Messages) tab
     });
+  }
+
+  /// Opens the public Global Spaces feed as a separate full-screen route,
+  /// keeping it cleanly distinct from the private Chats list.
+  void _openGlobalSpaces() {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => GlobalSpacesChatScreen(onStartCall: _startCall),
+    ));
   }
 
   /// The reading-language entry currently selected, resolved from the stored
@@ -117,13 +126,16 @@ class _ConFriKaShellState extends State<ConFriKaShell> {
 
     final screens = [
       HomeScreen(
-        onOpenGlobalSpaces: () => setState(() => _currentIndex = 1),
+        onOpenGlobalSpaces: _openGlobalSpaces,
         onOpenToneCoach: () => setState(() => _currentIndex = 3),
         onOpenTranslate: () => setState(() => _currentIndex = 4),
         onStartCall: _startCall,
         onOpenDirectMessage: _openDirectMessage,
       ),
-      GlobalSpacesChatScreen(onStartCall: _startCall),
+      DirectMessagesScreen(
+        onStartCall: _startCall,
+        onOpenGlobalSpaces: _openGlobalSpaces,
+      ),
       ConnectCallScreen(initialCallee: _pendingCallee),
       const LearnAndToneCoachScreen(),
       const TranslateScreen(),
@@ -169,9 +181,9 @@ class _ConFriKaShellState extends State<ConFriKaShell> {
             label: 'Home',
           ),
           NavigationDestination(
-            icon: Icon(Icons.public_outlined),
-            selectedIcon: Icon(Icons.public),
-            label: 'Spaces',
+            icon: Icon(Icons.chat_bubble_outline),
+            selectedIcon: Icon(Icons.chat_bubble),
+            label: 'Chats',
           ),
           NavigationDestination(
             icon: Icon(Icons.phone_in_talk_outlined),

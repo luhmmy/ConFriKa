@@ -105,8 +105,15 @@ async def send_email(to: str, subject: str, html: str, text: Optional[str] = Non
     return await asyncio.to_thread(_send_sync, to, subject, html, text or "")
 
 
+_OTP_ACTION = {
+    "signup": "verify your email",
+    "reset": "reset your password",
+    "change_pw": "confirm your password change",
+}
+
+
 def _otp_html(code: str, purpose: str) -> tuple[str, str]:
-    action = "verify your email" if purpose == "signup" else "reset your password"
+    action = _OTP_ACTION.get(purpose, "verify your email")
     html = f"""\
 <div style="font-family:system-ui,Arial,sans-serif;max-width:480px;margin:auto">
   <h2 style="color:#154C79">ConFriKa</h2>
@@ -120,11 +127,14 @@ def _otp_html(code: str, purpose: str) -> tuple[str, str]:
     return html, text
 
 
+_OTP_SUBJECT = {
+    "signup": "Your ConFriKa verification code",
+    "reset": "Reset your ConFriKa password",
+    "change_pw": "Confirm your ConFriKa password change",
+}
+
+
 async def send_otp_email(to: str, code: str, purpose: str) -> bool:
-    subject = (
-        "Your ConFriKa verification code"
-        if purpose == "signup"
-        else "Reset your ConFriKa password"
-    )
+    subject = _OTP_SUBJECT.get(purpose, "Your ConFriKa verification code")
     html, text = _otp_html(code, purpose)
     return await send_email(to, subject, html, text)

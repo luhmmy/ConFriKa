@@ -131,6 +131,8 @@ class ResetPasswordRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     current_password: str = Field(..., min_length=1, max_length=128)
     new_password: str = Field(..., min_length=8, max_length=128)
+    # Email OTP confirming the signed-in user controls the account inbox.
+    code: str = Field(..., min_length=4, max_length=10)
 
     @field_validator("new_password")
     @classmethod
@@ -341,6 +343,13 @@ class AuthService:
         return {"status": "password_reset"}
 
     @staticmethod
+    async def request_change_password_otp(
+        db: AsyncSession, user: User
+    ) -> OtpSentResponse:
+        """Email the signed-in user a code to authorize a password change."""
+        return await AuthService._issue_otp(db, user.email, "change_pw")
+
+    @staticmethod
     async def change_password(
         db: AsyncSession, user: User, req: ChangePasswordRequest
     ) -> Dict[str, Any]:
@@ -348,6 +357,11 @@ class AuthService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Your current password is incorrect.",
+            )
+        if not await OtpService.verify(db, user.email, "change_pw", req.code):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired verification code.",
             )
         user.password_hash = hash_password(req.new_password)
         await db.commit()

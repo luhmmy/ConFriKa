@@ -13,6 +13,25 @@ from .auth import get_current_user
 router = APIRouter(prefix="/chat", tags=["Chat & Direct Messages"])
 
 
+@router.get("/conversations")
+async def list_conversations(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List my direct-message conversations (one row per partner, newest first)."""
+    return await ChatService.get_conversations(db, current_user)
+
+
+@router.post("/dm/{username}/read")
+async def mark_thread_read(
+    username: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark all messages from this partner as read."""
+    return await ChatService.mark_thread_read(db, current_user, username)
+
+
 @router.get("/dm/{username}")
 async def get_direct_message_thread(
     username: str,

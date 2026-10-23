@@ -153,13 +153,20 @@ class ConFriKaApiClient {
     });
   }
 
+  /// Email the signed-in user an OTP authorizing a password change.
+  Future<Map<String, dynamic>> requestChangePasswordOtp() async =>
+      (await _post('/api/v1/auth/change-password/request-otp', {}))
+          as Map<String, dynamic>;
+
   Future<void> changePassword({
     required String currentPassword,
     required String newPassword,
+    required String code,
   }) async {
     await _post('/api/v1/auth/change-password', {
       'current_password': currentPassword,
       'new_password': newPassword,
+      'code': code,
     });
   }
 
@@ -244,8 +251,16 @@ class ConFriKaApiClient {
       (await _get('/api/v1/contacts/search', {'q': query})) as List<dynamic>;
 
   // ── Chat ──────────────────────────────────────────────────────────────
+  /// WhatsApp-style conversation list: one entry per DM partner.
+  Future<List<dynamic>> conversations() async =>
+      (await _get('/api/v1/chat/conversations')) as List<dynamic>;
+
   Future<List<dynamic>> directMessages(String username) async =>
       (await _get('/api/v1/chat/dm/${Uri.encodeComponent(username)}')) as List<dynamic>;
+
+  Future<void> markThreadRead(String username) async {
+    await _post('/api/v1/chat/dm/${Uri.encodeComponent(username)}/read', {});
+  }
 
   Future<Map<String, dynamic>> sendDirectMessage({
     required String recipientUsername,
