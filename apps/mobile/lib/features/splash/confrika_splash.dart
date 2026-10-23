@@ -1,10 +1,13 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../core/theme/confrika_theme.dart';
 import '../../core/widgets/confrika_brand_widgets.dart';
 
-/// Animated launch splash: the emblem springs in, then the ConFriKa name
-/// slides/fades up, then the tagline. Calls [onDone] when it finishes.
+/// Animated launch splash: a pulsing halo breathes behind the emblem as it
+/// springs in, the ConFriKa name slides up, the tagline fades, and a tri-colour
+/// loading bar sweeps underneath. Calls [onDone] when it finishes.
 class ConFriKaSplash extends StatefulWidget {
   final VoidCallback onDone;
   const ConFriKaSplash({super.key, required this.onDone});
@@ -14,8 +17,9 @@ class ConFriKaSplash extends StatefulWidget {
 }
 
 class _ConFriKaSplashState extends State<ConFriKaSplash>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _c;
+    with TickerProviderStateMixin {
+  late final AnimationController _c; // entrance (one-shot)
+  late final AnimationController _loop; // breathing halo + sweep (repeating)
   late final Animation<double> _logoFade;
   late final Animation<double> _logoScale;
   late final Animation<double> _nameFade;
@@ -29,6 +33,11 @@ class _ConFriKaSplashState extends State<ConFriKaSplash>
       vsync: this,
       duration: const Duration(milliseconds: 2200),
     );
+    _loop = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    )..repeat();
+
     _logoFade = CurvedAnimation(
       parent: _c,
       curve: const Interval(0.0, 0.35, curve: Curves.easeOut),
@@ -54,7 +63,6 @@ class _ConFriKaSplashState extends State<ConFriKaSplash>
     );
 
     _c.forward();
-    // Hold briefly on the finished frame, then hand off to the app.
     Future.delayed(const Duration(milliseconds: 2700), () {
       if (mounted) widget.onDone();
     });
@@ -63,6 +71,7 @@ class _ConFriKaSplashState extends State<ConFriKaSplash>
   @override
   void dispose() {
     _c.dispose();
+    _loop.dispose();
     super.dispose();
   }
 
@@ -87,14 +96,45 @@ class _ConFriKaSplashState extends State<ConFriKaSplash>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              FadeTransition(
-                opacity: _logoFade,
-                child: ScaleTransition(
-                  scale: _logoScale,
-                  child: const ConFriKaAppLogo(size: 132),
+              // Emblem with a breathing halo behind it.
+              SizedBox(
+                width: 200,
+                height: 200,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    AnimatedBuilder(
+                      animation: _loop,
+                      builder: (_, __) {
+                        final t = _loop.value;
+                        final pulse = 0.5 + 0.5 * math.sin(t * 2 * math.pi);
+                        return Container(
+                          width: 150 + pulse * 34,
+                          height: 150 + pulse * 34,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: RadialGradient(colors: [
+                              ConFriKaColors.oceanBlue
+                                  .withValues(alpha: 0.18 * (1 - pulse)),
+                              ConFriKaColors.savannaGreen
+                                  .withValues(alpha: 0.10 * (1 - pulse)),
+                              Colors.transparent,
+                            ]),
+                          ),
+                        );
+                      },
+                    ),
+                    FadeTransition(
+                      opacity: _logoFade,
+                      child: ScaleTransition(
+                        scale: _logoScale,
+                        child: const ConFriKaAppLogo(size: 132),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 18),
               FadeTransition(
                 opacity: _nameFade,
                 child: SlideTransition(
@@ -110,12 +150,19 @@ class _ConFriKaSplashState extends State<ConFriKaSplash>
                   style: TextStyle(fontSize: 13, color: Colors.grey),
                 ),
               ),
-              const SizedBox(height: 28),
+              const SizedBox(height: 30),
+              // Indeterminate tri-colour sweep.
               FadeTransition(
                 opacity: _taglineFade,
-                child: const SizedBox(
-                  width: 120,
-                  child: ConFriKaTriColorBar(height: 4),
+                child: SizedBox(
+                  width: 150,
+                  height: 4,
+                  child: AnimatedBuilder(
+                    animation: _loop,
+                    builder: (_, __) => CustomPaint(
+                      painter: _SweepBarPainter(_loop.value),
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -124,4 +171,37 @@ class _ConFriKaSplashState extends State<ConFriKaSplash>
       ),
     );
   }
+}
+
+/// A tri-colour (blue/orange/green) highlight that sweeps left→right on a track.
+class _SweepBarPainter extends CustomPainter {
+  final double t;
+  _SweepBarPainter(this.t);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final r = RRect.fromRectAndRadius(
+        Offset.zero & size, Radius.circular(size.height));
+    canvas.drawRRect(
+        r, Paint()..color = Colors.grey.withValues(alpha: 0.18));
+
+    final w = size.width * 0.42;
+    final x = (t * (size.width + w)) - w;
+    canvas.save();
+    canvas.clipRRect(r);
+    final rect = Rect.fromLTWH(x, 0, w, size.height);
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..shader = const LinearGradient(colors: [
+          ConFriKaColors.oceanBlue,
+          ConFriKaColors.sunsetOrange,
+          ConFriKaColors.savannaGreen,
+        ]).createShader(rect),
+    );
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_SweepBarPainter old) => old.t != t;
 }
