@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from ...database.session import get_db
-from ...database.models import User
+from ...database.models import User, DeviceToken
 from ...services.auth_service import (
     AuthService,
     SignUpRequest,
@@ -22,6 +22,11 @@ from ...services.learning_stats_service import LearningStatsService
 
 class TonalBaselineRequest(BaseModel):
     f0_baseline_hz: float = Field(..., ge=50.0, le=500.0)
+
+
+class RegisterDeviceRequest(BaseModel):
+    token: str = Field(..., min_length=8, max_length=4096)
+    platform: str = Field(default="android", max_length=16)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 security = HTTPBearer()
@@ -117,6 +122,25 @@ async def update_profile(
 ):
     """Update the signed-in user's profile (name, origin, dialect, country)."""
     return await AuthService.update_profile(db, current_user, req)
+
+
+@router.post("/me/devices")
+async def register_device(
+    req: RegisterDeviceRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Register this device's push token so it can receive message/call alerts."""
+    existing = await db.scalar(
+        select(DeviceToken).where(DeviceToken.token == req.token)
+    )
+    if existing is None:
+        db.add(DeviceToken(user_id=current_user.id, token=req.token, platform=req.platform))
+    else:
+        existing.user_id = current_user.id  # token moved to this account
+        existing.platform = req.platform
+    await db.commit()
+    return {"status": "registered"}
 
 
 @router.get("/me")

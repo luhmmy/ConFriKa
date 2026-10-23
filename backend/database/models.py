@@ -130,6 +130,18 @@ class CallSession(Base):
     duration_seconds = Column(Integer, default=0)
 
 
+class DeviceToken(Base):
+    """A device's push token (FCM) for message & call notifications."""
+
+    __tablename__ = "device_tokens"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    token = Column(Text, nullable=False)
+    platform = Column(String(16), default="android")  # 'android' | 'ios' | 'web'
+    created_at = Column(DateTime, default=_utcnow)
+
+
 class EmailVerification(Base):
     """A one-time email code for signup verification or password reset."""
 

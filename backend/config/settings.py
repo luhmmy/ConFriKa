@@ -54,6 +54,27 @@ class Settings(BaseSettings):
     PITCH_ANALYSIS_MIN_F0: float = 70.0
     PITCH_ANALYSIS_MAX_F0: float = 350.0
 
+    # Live in-call speech-to-speech translation (voice-preserving).
+    # Empty VOICE_API_KEY => the pipeline runs in stub mode (no live audio).
+    VOICE_PROVIDER: str = "elevenlabs"  # 'elevenlabs' | '' (stub)
+    VOICE_API_KEY: str = ""
+    VOICE_TTS_MODEL: str = "eleven_turbo_v2_5"   # low-latency streaming TTS
+    VOICE_STT_MODEL: str = "scribe_v1"           # speech-to-text
+    VOICE_MAX_CLIP_BYTES: int = 4 * 1024 * 1024  # 4 MB per translated utterance
+
+    @property
+    def voice_configured(self) -> bool:
+        return bool(self.VOICE_API_KEY and self.VOICE_API_KEY.strip())
+
+    # Push notifications (Firebase Cloud Messaging) — for message & call alerts.
+    # Empty => stub mode (no pushes sent; tokens still registered).
+    FCM_PROJECT_ID: str = ""
+    FCM_CREDENTIALS_FILE: str = ""  # path to a Firebase service-account JSON
+
+    @property
+    def fcm_configured(self) -> bool:
+        return bool(self.FCM_PROJECT_ID and self.FCM_CREDENTIALS_FILE)
+
     # WebRTC ICE / TURN (coturn REST ephemeral-credential mechanism)
     STUN_URL: str = "stun:stun.l.google.com:19302"
     TURN_HOST: str = ""  # e.g. turn.confrika.com — empty disables TURN relay

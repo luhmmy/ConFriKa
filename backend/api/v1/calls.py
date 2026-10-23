@@ -1,5 +1,9 @@
-from fastapi import APIRouter, Depends
+import base64
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
+from ...config.settings import settings
 from ...database.session import get_db
 from ...database.models import User
 from ...services.call_signaling_service import (
@@ -7,9 +11,46 @@ from ...services.call_signaling_service import (
     InitiateCallRequest,
     build_ice_servers,
 )
+from ...services.voice_service import VoiceService
 from .auth import get_current_user
 
 router = APIRouter(prefix="/calls", tags=["In-App Voice Calls & Telecom"])
+
+
+class TranslateUtteranceRequest(BaseModel):
+    audio_b64: str = Field(..., description="Base64-encoded WAV/MP3 of one spoken phrase")
+    source_dialect: str = "English"
+    target_dialect: str = "English"
+    voice_id: str | None = None  # cloned-voice id to re-speak in the speaker's tone
+
+
+@router.post("/translate-utterance")
+async def translate_utterance(
+    req: TranslateUtteranceRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Live call translation: STT → translate → voice-clone TTS for one utterance.
+    Returns the translated text and (when the voice service is configured) audio
+    re-spoken in the speaker's own voice. Stub mode returns text only."""
+    try:
+        audio = base64.b64decode(req.audio_b64)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="audio_b64 is not valid base64.")
+    if len(audio) > settings.VOICE_MAX_CLIP_BYTES:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Utterance clip too large.")
+    out = await VoiceService.translate_utterance(
+        audio=audio,
+        source_dialect=req.source_dialect,
+        target_dialect=req.target_dialect,
+        voice_id=req.voice_id,
+    )
+    return {
+        "source_text": out.source_text,
+        "translated_text": out.translated_text,
+        "audio_b64": out.audio_b64,
+        "provider": out.provider,
+        "voice_service_configured": settings.voice_configured,
+    }
 
 
 @router.get("/ice-servers")

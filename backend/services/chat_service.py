@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config.settings import settings
 from ..database.models import DirectMessage, GlobalSpacesMessage, User
 from .auth_service import normalize_username
+from .push_service import PushService
 from .speech_translation_service import SpeechTranslationService, TranslationRequest
 
 
@@ -308,6 +309,24 @@ class ChatService:
         db.add(dm)
         await db.commit()
         await db.refresh(dm)
+
+        # Notify the recipient (works whether or not they're online). Encrypted
+        # messages show a generic body — the server can't read the plaintext.
+        preview = (
+            "🔒 Encrypted message"
+            if dm.is_encrypted
+            else (dm.original_text or "New message")
+        )
+        try:
+            await PushService.notify_username(
+                db,
+                recipient_handle,
+                title=current_user.full_name,
+                body=preview[:120],
+                data={"type": "direct_message", "from": current_user.username},
+            )
+        except Exception:  # never let notification failure break sending
+            pass
 
         return {
             "id": dm.id,
