@@ -6,6 +6,7 @@ import '../../core/crypto/e2ee_service.dart';
 import '../../core/network/api_client.dart';
 import '../../core/session.dart';
 import '../../core/widgets/confrika_brand_widgets.dart';
+import '../connect/active_call_screen.dart';
 import '../connect/connect_call_screen.dart';
 import '../home/home_screen.dart';
 import '../learn/learn_and_tone_coach_screen.dart';
@@ -47,7 +48,6 @@ class _ConFriKaShellState extends State<ConFriKaShell> {
   final _api = ConFriKaApiClient.instance;
 
   int _currentIndex = 0;
-  String? _pendingCallee;
 
   // Live connection / presence (polled from /health — real values).
   bool _connected = false;
@@ -99,10 +99,11 @@ class _ConFriKaShellState extends State<ConFriKaShell> {
   }
 
   void _startCall(String username) {
-    setState(() {
-      _pendingCallee = username;
-      _currentIndex = 2;
-    });
+    final handle = username.startsWith('@') ? username : '@$username';
+    Navigator.of(context).push(MaterialPageRoute(
+      fullscreenDialog: true,
+      builder: (_) => ActiveCallScreen(calleeUsername: handle),
+    ));
   }
 
   void _openDirectMessage(Map<String, dynamic> contact) {
@@ -148,7 +149,7 @@ class _ConFriKaShellState extends State<ConFriKaShell> {
         onStartCall: _startCall,
         onOpenGlobalSpaces: _openGlobalSpaces,
       ),
-      ConnectCallScreen(initialCallee: _pendingCallee),
+      const ConnectCallScreen(),
       const LearnAndToneCoachScreen(),
       const TranslateScreen(),
       const ProfileAndTrustScreen(),

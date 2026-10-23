@@ -161,6 +161,17 @@ class ConFriKaWebRTCService {
     }
   }
 
+  bool _speakerOn = false;
+  bool get isSpeakerOn => _speakerOn;
+
+  /// Routes call audio to the loudspeaker (vs the earpiece).
+  Future<void> setSpeakerphone(bool on) async {
+    _speakerOn = on;
+    try {
+      await Helper.setSpeakerphoneOn(on);
+    } catch (_) {/* not supported on all platforms */}
+  }
+
   /// Tunes SDP with OPUS codec parameters: FEC (Forward Error Correction) and DTX (Discontinuous Transmission)
   String _tuneSdpForAfricanCellular(String sdp) {
     if (sdp.contains('opus/48000')) {
