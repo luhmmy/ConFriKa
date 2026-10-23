@@ -61,6 +61,12 @@ services:
       EMAIL_API_KEY: ${EMAIL_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-ConFriKa <onboarding@resend.dev>}
       MAILGUN_DOMAIN: ${MAILGUN_DOMAIN:-}
+      # Push notifications (Firebase Cloud Messaging)
+      FCM_PROJECT_ID: ${FCM_PROJECT_ID:-}
+      FCM_CREDENTIALS_FILE: ${FCM_CREDENTIALS_FILE:-/run/secrets/firebase-service-account.json}
+      # Live in-call speech-to-speech translation
+      VOICE_PROVIDER: ${VOICE_PROVIDER:-elevenlabs}
+      VOICE_API_KEY: ${VOICE_API_KEY:-}
       TRANSLATION_PROVIDER: nllb
       # Load the model from a locally-provided directory (bind-mounted below).
       # Falls back to the HF id if the directory is empty.
@@ -72,6 +78,7 @@ services:
     volumes:
       - model_cache:/opt/confrika/models
       - ${NLLB_LOCAL_DIR:-/home/roothawk/confrika_nllb}:/opt/confrika/nllb-local:ro
+      - ./secrets/firebase-service-account.json:/run/secrets/firebase-service-account.json:ro
     ports:
       - "8088:8000"
 

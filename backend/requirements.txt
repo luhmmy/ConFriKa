@@ -12,6 +12,8 @@ python-multipart==0.0.32
 # ── Auth & security ─────────────────────────────────────────────────────
 # PyJWT (maintained) replaces python-jose (unmaintained; CVE-2024-33663/33664).
 PyJWT==2.15.1
+# Required for PyJWT RS256 signing of the Firebase service-account assertion (FCM).
+cryptography==50.0.2
 bcrypt==5.0.0
 
 # ── Database & cache ────────────────────────────────────────────────────

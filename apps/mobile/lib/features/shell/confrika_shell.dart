@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/crypto/e2ee_service.dart';
 import '../../core/network/api_client.dart';
+import '../../core/services/push_messaging_service.dart';
 import '../../core/session.dart';
 import '../../core/widgets/confrika_brand_widgets.dart';
 import '../connect/active_call_screen.dart';
@@ -61,6 +62,24 @@ class _ConFriKaShellState extends State<ConFriKaShell> {
     _pollHealth();
     _healthTimer = Timer.periodic(const Duration(seconds: 30), (_) => _pollHealth());
     _bootstrapEncryptionKey();
+    _bootstrapPush();
+  }
+
+  /// Register this device for push notifications and route incoming-call pushes
+  /// straight into the full-screen call UI.
+  Future<void> _bootstrapPush() async {
+    PushMessagingService.instance.onIncomingCall = (from, name) {
+      if (!mounted) return;
+      Navigator.of(context).push(MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => ActiveCallScreen(
+          calleeUsername: from,
+          displayName: name,
+          incoming: true,
+        ),
+      ));
+    };
+    await PushMessagingService.instance.init();
   }
 
   /// Generate (once) and publish this device's E2E public key so other users

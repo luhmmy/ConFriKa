@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "141361283151",
+    "project_id": "confrika",
+    "storage_bucket": "confrika.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:141361283151:android:8153cc3a6ee648b708ea3a",
+        "android_client_info": {
+          "package_name": "com.confrika.confrika_mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC5TgurcYIXSYr58x1TicnvcmbcPZmGZtk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

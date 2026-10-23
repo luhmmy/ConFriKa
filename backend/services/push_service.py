@@ -138,7 +138,8 @@ class PushService:
                     "token": tok,
                     "notification": {"title": title, "body": body},
                     "data": {k: str(v) for k, v in data.items()},
-                    "android": {"priority": "high"},
+                    # FCM v1 AndroidConfig.priority is an uppercase enum.
+                    "android": {"priority": "HIGH"},
                 }
             }
             try:
@@ -154,6 +155,8 @@ class PushService:
                 with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
                     if 200 <= resp.status < 300:
                         sent += 1
+            except urllib.error.HTTPError as e:
+                logger.warning("FCM send failed (%s): %s", e.code, e.read()[:300])
             except Exception as e:
                 logger.warning("FCM send failed for a token: %s", e)
         return sent

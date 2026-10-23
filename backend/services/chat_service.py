@@ -323,7 +323,7 @@ class ChatService:
                 recipient_handle,
                 title=current_user.full_name,
                 body=preview[:120],
-                data={"type": "direct_message", "from": current_user.username},
+                data={"type": "direct_message", "from_user": current_user.username},
             )
         except Exception:  # never let notification failure break sending
             pass

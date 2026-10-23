@@ -173,6 +173,11 @@ class ConFriKaApiClient {
   Future<Map<String, dynamic>> updateProfile(Map<String, dynamic> fields) async =>
       (await _put('/api/v1/auth/me', fields)) as Map<String, dynamic>;
 
+  /// Register this device's push (FCM) token for message & call alerts.
+  Future<void> registerDevice(String token, {String platform = 'android'}) async {
+    await _post('/api/v1/auth/me/devices', {'token': token, 'platform': platform});
+  }
+
   Future<Map<String, dynamic>> login({
     required String emailOrUsername,
     required String password,
