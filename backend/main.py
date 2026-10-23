@@ -19,11 +19,13 @@ logger = logging.getLogger("confrika")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
-    # Seed the default communities (idempotent).
+    # Seed the default communities + grant configured admins (idempotent).
     from .database.session import AsyncSessionLocal
     from .services.community_service import CommunityService
+    from .services.admin_service import AdminService
     async with AsyncSessionLocal() as db:
         await CommunityService.ensure_defaults(db)
+        await AdminService.bootstrap_admins(db)
     if settings.TRANSLATION_WARMUP and settings.TRANSLATION_PROVIDER == "nllb":
         # Load the model in the background so startup/health isn't blocked.
         asyncio.create_task(translation_engine.warmup())
@@ -80,6 +82,16 @@ except OSError:
     pass  # created at runtime by the upload handler when permissions allow
 # check_dir=False so importing the app never requires the media dir to exist yet.
 app.mount("/media", StaticFiles(directory=settings.MEDIA_DIR, check_dir=False), name="media")
+
+# Admin dashboard (same-origin single page; auth is enforced by the API).
+from fastapi.responses import FileResponse  # noqa: E402
+
+_ADMIN_HTML = os.path.join(os.path.dirname(__file__), "static", "admin.html")
+
+
+@app.get("/admin", include_in_schema=False)
+async def admin_dashboard():
+    return FileResponse(_ADMIN_HTML)
 
 
 @app.get("/health", tags=["Monitoring & Health"])

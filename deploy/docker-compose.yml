@@ -51,6 +51,7 @@ services:
     environment:
       APP_ENV: production
       DEBUG: "false"
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in deploy/.env}
       ACCESS_TOKEN_EXPIRE_MINUTES: "10080"
       DATABASE_URL: postgresql+asyncpg://confrika_admin:${POSTGRES_PASSWORD}@postgres:5432/confrika_prod

@@ -46,6 +46,9 @@ class User(Base):
     allow_images = Column(Boolean, default=True, nullable=False)
     # Profile picture (public media URL), or null for an initials avatar.
     avatar_url = Column(Text, nullable=True)
+    # Admin / moderation.
+    is_admin = Column(Boolean, default=False, nullable=False)
+    is_banned = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=_utcnow)
     updated_at = Column(
         DateTime,

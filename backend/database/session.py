@@ -79,6 +79,9 @@ async def init_db():
             await _ensure_column(conn, "users", "avatar_url", "TEXT")
             await _ensure_column(conn, "direct_messages", "media_url", "TEXT")
             await _ensure_column(conn, "global_spaces_messages", "media_url", "TEXT")
+            # Admin / moderation.
+            await _ensure_column(conn, "users", "is_admin", "BOOLEAN NOT NULL DEFAULT FALSE")
+            await _ensure_column(conn, "users", "is_banned", "BOOLEAN NOT NULL DEFAULT FALSE")
             # original_text may now be null (encrypted messages carry no plaintext).
             await conn.execute(
                 text("ALTER TABLE direct_messages ALTER COLUMN original_text DROP NOT NULL")

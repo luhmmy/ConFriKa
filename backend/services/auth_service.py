@@ -340,6 +340,12 @@ class AuthService:
                 detail="Invalid credentials. Please check your email/username and password.",
             )
 
+        if user.is_banned:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This account has been suspended.",
+            )
+
         if not user.email_verified:
             # Credentials are correct but the email was never verified: send a
             # fresh code and tell the client to route to the OTP screen.

@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ConFriKa Admin</title>
+<style>
+  :root{--blue:#154C79;--green:#2D8A4E;--orange:#E87722;--bg:#f3f5f8;--card:#fff;--line:#e2e8f0;--muted:#64748b;}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:#0f172a}
+  header{background:var(--blue);color:#fff;padding:14px 20px;display:flex;align-items:center;gap:10px}
+  header b{font-size:18px}
+  header .sp{flex:1}
+  header button{background:rgba(255,255,255,.15);color:#fff;border:0;padding:8px 14px;border-radius:8px;cursor:pointer}
+  main{max-width:1100px;margin:0 auto;padding:20px}
+  .login{max-width:360px;margin:8vh auto;background:var(--card);padding:26px;border-radius:14px;box-shadow:0 8px 30px rgba(0,0,0,.08)}
+  .login h1{margin:0 0 4px;font-size:22px;color:var(--blue)}
+  .login p{margin:0 0 18px;color:var(--muted);font-size:13px}
+  input{width:100%;padding:11px 13px;border:1px solid var(--line);border-radius:9px;font-size:14px;margin-bottom:10px}
+  .btn{background:var(--blue);color:#fff;border:0;padding:11px;border-radius:9px;width:100%;font-weight:600;cursor:pointer}
+  .err{color:#dc2626;font-size:13px;min-height:18px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;margin-bottom:22px}
+  .tile{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .tile .n{font-size:30px;font-weight:800;color:var(--blue)}
+  .tile .l{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-top:2px}
+  .row{display:flex;gap:20px;flex-wrap:wrap}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;flex:1;min-width:300px}
+  .panel h2{margin:0 0 12px;font-size:15px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:600}
+  .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700}
+  .pill.ban{background:#fee2e2;color:#b91c1c}.pill.ok{background:#dcfce7;color:#166534}.pill.adm{background:#dbeafe;color:#1e40af}
+  .act{border:0;border-radius:7px;padding:5px 10px;cursor:pointer;font-weight:600;font-size:12px}
+  .act.ban{background:#fee2e2;color:#b91c1c}.act.unban{background:#dcfce7;color:#166534}
+  .bar{height:8px;background:var(--line);border-radius:6px;overflow:hidden}
+  .bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--blue),var(--green))}
+  .search{display:flex;gap:8px;margin-bottom:10px}
+  .search input{margin:0}
+  .hide{display:none}
+</style>
+</head>
+<body>
+<div id="loginView">
+  <div class="login">
+    <h1>ConFriKa Admin</h1>
+    <p>Sign in with an administrator account.</p>
+    <input id="email" placeholder="Email or @username" autocomplete="username" />
+    <input id="password" type="password" placeholder="Password" autocomplete="current-password" />
+    <div class="err" id="loginErr"></div>
+    <button class="btn" onclick="login()">Sign in</button>
+  </div>
+</div>
+
+<div id="appView" class="hide">
+  <header>
+    <b>ConFriKa</b> <span>Admin</span><span class="sp"></span>
+    <span id="who" style="font-size:13px;opacity:.85"></span>
+    <button onclick="logout()">Sign out</button>
+  </header>
+  <main>
+    <div class="grid" id="tiles"></div>
+    <div class="row">
+      <div class="panel" style="max-width:360px">
+        <h2>Users by country (top 10)</h2>
+        <div id="countries"></div>
+      </div>
+      <div class="panel">
+        <h2>Users</h2>
+        <div class="search">
+          <input id="q" placeholder="Search username / email / name" oninput="debouncedUsers()" />
+        </div>
+        <table><thead><tr><th>User</th><th>Country</th><th>Status</th><th></th></tr></thead>
+        <tbody id="users"></tbody></table>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+const API = location.origin + '/api/v1';
+let token = localStorage.getItem('confrika_admin_token') || '';
+
+async function api(path, opts={}){
+  const r = await fetch(API+path, {...opts, headers:{'Content-Type':'application/json','Authorization':'Bearer '+token, ...(opts.headers||{})}});
+  if(!r.ok){ const b=await r.json().catch(()=>({})); throw new Error(b.detail||('Error '+r.status)); }
+  return r.json();
+}
+
+async function login(){
+  const err=document.getElementById('loginErr'); err.textContent='';
+  try{
+    const data = await (await fetch(API+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email_or_username:email.value.trim(),password:password.value})})).json();
+    if(!data.access_token) throw new Error(data.detail||'Login failed');
+    token = data.access_token;
+    const me = await (await fetch(API+'/admin/me',{headers:{'Authorization':'Bearer '+token}})).json();
+    if(!me.is_admin) throw new Error('This account is not an administrator.');
+    localStorage.setItem('confrika_admin_token', token);
+    showApp(me);
+  }catch(e){ err.textContent = e.message; }
+}
+function logout(){ localStorage.removeItem('confrika_admin_token'); token=''; location.reload(); }
+
+function showApp(me){
+  document.getElementById('loginView').classList.add('hide');
+  document.getElementById('appView').classList.remove('hide');
+  document.getElementById('who').textContent = me.full_name || me.username;
+  loadStats(); loadUsers();
+}
+
+async function loadStats(){
+  const s = await api('/admin/stats');
+  const tiles=[['total_users','Total users'],['verified_users','Verified'],['banned_users','Banned'],
+    ['total_countries','Countries'],['total_communities','Communities'],['direct_messages','Direct msgs'],['global_messages','Global msgs']];
+  document.getElementById('tiles').innerHTML = tiles.map(([k,l])=>`<div class="tile"><div class="n">${s[k]??0}</div><div class="l">${l}</div></div>`).join('');
+  const max = Math.max(1, ...s.users_by_country.map(c=>c.count));
+  document.getElementById('countries').innerHTML = s.users_by_country.map(c=>
+    `<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;font-size:13px"><span>${c.country||'—'}</span><b>${c.count}</b></div><div class="bar"><i style="width:${c.count/max*100}%"></i></div></div>`
+  ).join('') || '<p style="color:#64748b">No data</p>';
+}
+
+async function loadUsers(){
+  const q = document.getElementById('q').value.trim();
+  const list = await api('/admin/users'+(q?('?q='+encodeURIComponent(q)):''));
+  document.getElementById('users').innerHTML = list.map(u=>{
+    const status = u.is_admin?'<span class="pill adm">Admin</span>':(u.is_banned?'<span class="pill ban">Banned</span>':'<span class="pill ok">Active</span>');
+    const btn = u.is_admin?'':(u.is_banned
+      ?`<button class="act unban" onclick="setBan('${u.username}',false)">Unban</button>`
+      :`<button class="act ban" onclick="setBan('${u.username}',true)">Ban</button>`);
+    return `<tr><td><b>${u.username}</b><br><span style="color:#64748b">${u.email}</span></td><td>${u.country_code||''}</td><td>${status}</td><td style="text-align:right">${btn}</td></tr>`;
+  }).join('') || '<tr><td colspan="4" style="color:#64748b">No users</td></tr>';
+}
+
+let _t; function debouncedUsers(){ clearTimeout(_t); _t=setTimeout(loadUsers, 300); }
+
+async function setBan(username, banned){
+  if(!confirm((banned?'Ban ':'Unban ')+username+'?')) return;
+  try{ await api(`/admin/users/${encodeURIComponent(username)}/${banned?'ban':'unban'}`,{method:'POST'}); loadUsers(); loadStats(); }
+  catch(e){ alert(e.message); }
+}
+
+// Auto-login if a token is stored.
+if(token){ fetch(API+'/admin/me',{headers:{'Authorization':'Bearer '+token}}).then(r=>r.ok?r.json():Promise.reject()).then(showApp).catch(()=>{localStorage.removeItem('confrika_admin_token');}); }
+</script>
+</body>
+</html>

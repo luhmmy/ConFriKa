@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"  # 'development' | 'production'
     DEBUG: bool = False
 
+    # Comma-separated emails granted admin (dashboard) access on startup.
+    ADMIN_EMAILS: str = ""
+
     # Security / JWT. SECRET_KEY must be supplied via environment in production.
     SECRET_KEY: Optional[str] = None
     ALGORITHM: str = "HS256"
@@ -86,6 +89,10 @@ class Settings(BaseSettings):
     TURN_PORT: int = 3478
     TURN_SECRET: str = ""  # shared static-auth-secret with coturn
     TURN_TTL_SECONDS: int = 86400
+
+    @property
+    def admin_emails(self) -> List[str]:
+        return [e.strip().lower() for e in (self.ADMIN_EMAILS or "").split(",") if e.strip()]
 
     @property
     def is_production(self) -> bool:
