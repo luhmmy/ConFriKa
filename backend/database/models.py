@@ -38,6 +38,8 @@ class User(Base):
     primary_dialect = Column(String(100), nullable=False)
     f0_baseline_hz = Column(Float, default=138.0)
     email_verified = Column(Boolean, default=False, nullable=False)
+    # Base64 X25519 public key for end-to-end encrypted direct messages.
+    public_key = Column(Text, nullable=True)
     created_at = Column(DateTime, default=_utcnow)
     updated_at = Column(
         DateTime,
@@ -74,8 +76,14 @@ class DirectMessage(Base):
     sender_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     recipient_username = Column(String(40), nullable=False, index=True)
     message_type = Column(String(20), default="text")  # 'text' or 'voicenote'
-    original_text = Column(Text, nullable=False)
+    # Plaintext fields (null for E2E-encrypted messages).
+    original_text = Column(Text, nullable=True)
     translated_text = Column(Text, nullable=True)
+    # End-to-end encryption: ciphertext (base64 nonce|ct|mac of a JSON payload
+    # holding original + translated), and the sender's X25519 public key.
+    is_encrypted = Column(Boolean, default=False, nullable=False)
+    ciphertext = Column(Text, nullable=True)
+    sender_pub = Column(Text, nullable=True)
     source_dialect = Column(String(100), nullable=False)
     target_dialect = Column(String(100), nullable=True)
     audio_url = Column(Text, nullable=True)

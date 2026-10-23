@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
+import '../../core/crypto/e2ee_service.dart';
 import '../../core/network/api_client.dart';
 import '../../core/session.dart';
 import '../../core/theme/confrika_theme.dart';
@@ -38,10 +40,25 @@ class _DirectChatThreadScreenState extends State<DirectChatThreadScreen> {
   String? _error;
   Timer? _pollTimer;
 
+  // E2E encryption state for this thread.
+  String? _partnerPub; // null => partner has no key; chat falls back to plaintext
+  String? _partnerDialect;
+  bool get _encrypted => _partnerPub != null;
+
   @override
   void initState() {
     super.initState();
-    _load(initial: true);
+    _bootstrap();
+  }
+
+  Future<void> _bootstrap() async {
+    await E2eeService.instance.ensureKeyPair();
+    try {
+      final info = await _api.peerKeyInfo(widget.partnerUsername);
+      _partnerPub = info['public_key'] as String?;
+      _partnerDialect = info['primary_dialect'] as String?;
+    } catch (_) {}
+    await _load(initial: true);
     _pollTimer =
         Timer.periodic(const Duration(seconds: 4), (_) => _load(initial: false));
   }
@@ -59,6 +76,7 @@ class _DirectChatThreadScreenState extends State<DirectChatThreadScreen> {
       final rows = await _api.directMessages(widget.partnerUsername);
       if (!mounted) return;
       final next = rows.cast<Map<String, dynamic>>();
+      await _decryptAll(next);
       final grew = next.length != _messages.length;
       setState(() {
         _messages = next;
@@ -74,6 +92,30 @@ class _DirectChatThreadScreenState extends State<DirectChatThreadScreen> {
         _loading = false;
         _error = e.message;
       });
+    }
+  }
+
+  /// Decrypt every encrypted message in place so the bubble renderer can use
+  /// the existing original_text / translated_text fields. Both directions of a
+  /// 1:1 thread share the same key (ECDH is symmetric), so the partner's public
+  /// key decrypts my own sent messages too.
+  Future<void> _decryptAll(List<Map<String, dynamic>> rows) async {
+    for (final m in rows) {
+      if (m['is_encrypted'] != true) continue;
+      final blob = m['ciphertext'] as String?;
+      final peerPub = _partnerPub;
+      if (blob == null || peerPub == null) {
+        m['original_text'] = '🔒 Encrypted';
+        continue;
+      }
+      try {
+        final clear = await E2eeService.instance.decryptFrom(peerPub, blob);
+        final payload = jsonDecode(clear) as Map<String, dynamic>;
+        m['original_text'] = payload['original'] as String? ?? '';
+        m['translated_text'] = payload['translated'] as String?;
+      } catch (_) {
+        m['original_text'] = '🔒 Unable to decrypt';
+      }
     }
   }
 
@@ -93,13 +135,39 @@ class _DirectChatThreadScreenState extends State<DirectChatThreadScreen> {
     final text = _composeCtrl.text.trim();
     if (text.isEmpty || _sending) return;
     setState(() => _sending = true);
+    final sourceDialect = ConFriKaSession.instance.primaryDialect;
     try {
-      await _api.sendDirectMessage(
-        recipientUsername: widget.partnerUsername,
-        text: text,
-        sourceDialect: ConFriKaSession.instance.primaryDialect,
-        autoTranslate: _showTranslation,
-      );
+      if (_encrypted) {
+        // Translate-before-encrypt: the server only ever stores ciphertext.
+        String? translated;
+        final target = _partnerDialect ?? 'English';
+        if (target.trim().toLowerCase() != sourceDialect.trim().toLowerCase()) {
+          try {
+            final res = await _api.translate(
+              text: text,
+              sourceDialect: sourceDialect,
+              targetDialect: target,
+            );
+            translated = res['translated_text'] as String?;
+          } catch (_) {/* send without translation if it fails */}
+        }
+        final payload = jsonEncode({'original': text, 'translated': translated});
+        final blob = await E2eeService.instance.encryptFor(_partnerPub!, payload);
+        await _api.sendEncryptedDirectMessage(
+          recipientUsername: widget.partnerUsername,
+          ciphertext: blob,
+          senderPub: await E2eeService.instance.publicKey,
+          sourceDialect: sourceDialect,
+          targetDialect: target,
+        );
+      } else {
+        await _api.sendDirectMessage(
+          recipientUsername: widget.partnerUsername,
+          text: text,
+          sourceDialect: sourceDialect,
+          autoTranslate: _showTranslation,
+        );
+      }
       _composeCtrl.clear();
       await _load(initial: false);
     } on ApiException catch (e) {
@@ -167,7 +235,7 @@ class _DirectChatThreadScreenState extends State<DirectChatThreadScreen> {
       ),
       body: Column(
         children: [
-          const _EncryptionBanner(),
+          _encryptionBanner(theme),
           Expanded(child: _body(theme)),
           _composer(theme),
         ],
@@ -329,6 +397,31 @@ class _DirectChatThreadScreenState extends State<DirectChatThreadScreen> {
     );
   }
 
+  Widget _encryptionBanner(ThemeData theme) {
+    final enc = _encrypted;
+    final color = enc ? ConFriKaColors.savannaGreen : ConFriKaColors.amberHighlight;
+    final text = enc
+        ? 'End-to-end encrypted · auto-translated into each person’s dialect'
+        : 'Not encrypted yet — recipient hasn’t set up a key';
+    return Container(
+      width: double.infinity,
+      color: color.withValues(alpha: 0.12),
+      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 14),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(enc ? Icons.lock : Icons.lock_open, size: 12, color: color),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(text,
+                style: TextStyle(fontSize: 11, color: theme.hintColor),
+                textAlign: TextAlign.center),
+          ),
+        ],
+      ),
+    );
+  }
+
   static String _initials(String name) {
     final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty);
     if (parts.isEmpty) return '·';
@@ -345,29 +438,3 @@ class _DirectChatThreadScreenState extends State<DirectChatThreadScreen> {
   }
 }
 
-class _EncryptionBanner extends StatelessWidget {
-  const _EncryptionBanner();
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      color: ConFriKaColors.amberHighlight.withValues(alpha: 0.12),
-      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 14),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.lock, size: 12, color: ConFriKaColors.amberHighlight),
-          const SizedBox(width: 6),
-          Flexible(
-            child: Text(
-              'Private chat — auto-translated into each person’s dialect',
-              style: TextStyle(
-                  fontSize: 11, color: Theme.of(context).hintColor),
-              textAlign: TextAlign.center,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}

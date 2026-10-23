@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../core/crypto/e2ee_service.dart';
 import '../../core/network/api_client.dart';
 import '../../core/session.dart';
 import '../../core/widgets/confrika_brand_widgets.dart';
@@ -59,6 +60,17 @@ class _ConFriKaShellState extends State<ConFriKaShell> {
     ConFriKaSession.instance.addListener(_onSessionChanged);
     _pollHealth();
     _healthTimer = Timer.periodic(const Duration(seconds: 30), (_) => _pollHealth());
+    _bootstrapEncryptionKey();
+  }
+
+  /// Generate (once) and publish this device's E2E public key so other users
+  /// can encrypt direct messages to us. Fails silently — DMs fall back to
+  /// plaintext when a key isn't available.
+  Future<void> _bootstrapEncryptionKey() async {
+    try {
+      final pub = await E2eeService.instance.ensureKeyPair();
+      await _api.uploadPublicKey(pub);
+    } catch (_) {}
   }
 
   @override

@@ -20,6 +20,8 @@ dependencies:
   flutter_callkit_incoming: ^2.0.4
   permission_handler: ^11.3.1
   shared_preferences: ^2.2.3
+  cryptography: ^2.7.0
+  flutter_secure_storage: ^9.2.2
 
 dev_dependencies:
   flutter_test:

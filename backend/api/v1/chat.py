@@ -7,10 +7,31 @@ from ...services.chat_service import (
     ChatService,
     SendDmRequest,
     SendSpacesRequest,
+    PublicKeyRequest,
 )
 from .auth import get_current_user
 
 router = APIRouter(prefix="/chat", tags=["Chat & Direct Messages"])
+
+
+@router.put("/keys/me")
+async def set_my_public_key(
+    req: PublicKeyRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Register my X25519 public key so others can E2E-encrypt messages to me."""
+    return await ChatService.set_public_key(db, current_user, req.public_key)
+
+
+@router.get("/keys/{username}")
+async def get_public_key(
+    username: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Fetch a user's public key for end-to-end encryption (null if not set)."""
+    return await ChatService.get_public_key(db, username)
 
 
 @router.get("/conversations")

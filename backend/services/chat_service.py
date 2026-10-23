@@ -14,7 +14,12 @@ from .speech_translation_service import SpeechTranslationService, TranslationReq
 class SendDmRequest(BaseModel):
     recipient_username: str
     message_type: str = "text"  # 'text' or 'voicenote'
-    original_text: str = Field(..., min_length=1)
+    # Plaintext path (non-encrypted chats). For encrypted chats this is omitted
+    # and `ciphertext` + `sender_pub` carry the (already-translated) payload.
+    original_text: Optional[str] = Field(default=None, min_length=1)
+    is_encrypted: bool = False
+    ciphertext: Optional[str] = None
+    sender_pub: Optional[str] = None
     source_dialect: str = "English"
     target_dialect: Optional[str] = None
     audio_url: Optional[str] = None
@@ -45,7 +50,33 @@ def _duration_label(seconds: Optional[float]) -> str:
     return f"{total // 60}:{total % 60:02d}"
 
 
+class PublicKeyRequest(BaseModel):
+    public_key: str = Field(..., min_length=16, max_length=512)
+
+
 class ChatService:
+    @classmethod
+    async def set_public_key(
+        cls, db: AsyncSession, current_user: User, public_key: str
+    ) -> Dict[str, Any]:
+        """Register the signed-in user's X25519 public key for E2E encryption."""
+        current_user.public_key = public_key.strip()
+        await db.commit()
+        return {"status": "ok"}
+
+    @classmethod
+    async def get_public_key(
+        cls, db: AsyncSession, username: str
+    ) -> Dict[str, Any]:
+        handle = normalize_username(username)
+        user = await db.scalar(select(User).where(User.username == handle))
+        return {
+            "username": handle,
+            "public_key": user.public_key if user else None,
+            "primary_dialect": user.primary_dialect if user else None,
+            "full_name": user.full_name if user else None,
+        }
+
     @classmethod
     async def _translate(cls, text: str, source: str, target: str) -> Optional[str]:
         if not target or source.strip().lower() == target.strip().lower():
@@ -93,6 +124,9 @@ class ChatService:
                     "dialect_name": m.source_dialect,
                     "original_text": m.original_text,
                     "translated_text": m.translated_text,
+                    "is_encrypted": m.is_encrypted,
+                    "ciphertext": m.ciphertext,
+                    "sender_pub": m.sender_pub,
                     "audio_url": m.audio_url,
                     "is_me": is_me,
                     "is_read": m.is_read,
@@ -151,15 +185,28 @@ class ChatService:
                     "last_at": None,
                     "unread_count": 0,
                     "last_is_me": False,
+                    "last_is_encrypted": False,
+                    "last_ciphertext": None,
+                    "last_sender_pub": None,
                 },
             )
             # Prefer a real display name when we know the partner user.
             if not is_me and sender is not None:
                 convo["partner_name"] = sender.full_name
             # Messages roll forward in time, so the final write is the latest.
-            convo["last_message"] = (
-                m.original_text if m.message_type == "text" else "🎤 Voice note"
-            )
+            if m.is_encrypted:
+                # The server can't read E2E-encrypted text; the client decrypts
+                # the preview itself using the stored ciphertext + sender_pub.
+                convo["last_message"] = "🔒 Encrypted message"
+                convo["last_ciphertext"] = m.ciphertext
+                convo["last_sender_pub"] = m.sender_pub
+                convo["last_is_encrypted"] = True
+            elif m.message_type == "text":
+                convo["last_message"] = m.original_text or ""
+                convo["last_is_encrypted"] = False
+            else:
+                convo["last_message"] = "🎤 Voice note"
+                convo["last_is_encrypted"] = False
             convo["last_message_type"] = m.message_type
             convo["last_at"] = m.created_at.isoformat()
             convo["last_is_me"] = is_me
@@ -208,24 +255,56 @@ class ChatService:
                 detail=f"Recipient {recipient_handle} was not found.",
             )
 
-        # Translate into the recipient's own dialect so they read it natively.
         target = req.target_dialect or recipient.primary_dialect
-        translated = None
-        if req.auto_translate and req.message_type == "text":
-            translated = await cls._translate(req.original_text, req.source_dialect, target)
 
-        dm = DirectMessage(
-            sender_id=current_user.id,
-            recipient_username=recipient_handle,
-            message_type=req.message_type,
-            original_text=req.original_text,
-            translated_text=translated,
-            source_dialect=req.source_dialect,
-            target_dialect=target,
-            audio_url=req.audio_url,
-            audio_duration_seconds=req.audio_duration_seconds,
-            is_read=False,
-        )
+        if req.is_encrypted:
+            # End-to-end encrypted: the client already translated and encrypted
+            # the payload. The server stores only ciphertext and never the plaintext.
+            if not req.ciphertext or not req.sender_pub:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Encrypted messages require ciphertext and sender_pub.",
+                )
+            dm = DirectMessage(
+                sender_id=current_user.id,
+                recipient_username=recipient_handle,
+                message_type=req.message_type,
+                original_text=None,
+                translated_text=None,
+                is_encrypted=True,
+                ciphertext=req.ciphertext,
+                sender_pub=req.sender_pub,
+                source_dialect=req.source_dialect,
+                target_dialect=target,
+                audio_url=req.audio_url,
+                audio_duration_seconds=req.audio_duration_seconds,
+                is_read=False,
+            )
+        else:
+            if not req.original_text:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="A message is required.",
+                )
+            # Translate into the recipient's own dialect so they read it natively.
+            translated = None
+            if req.auto_translate and req.message_type == "text":
+                translated = await cls._translate(
+                    req.original_text, req.source_dialect, target
+                )
+            dm = DirectMessage(
+                sender_id=current_user.id,
+                recipient_username=recipient_handle,
+                message_type=req.message_type,
+                original_text=req.original_text,
+                translated_text=translated,
+                is_encrypted=False,
+                source_dialect=req.source_dialect,
+                target_dialect=target,
+                audio_url=req.audio_url,
+                audio_duration_seconds=req.audio_duration_seconds,
+                is_read=False,
+            )
         db.add(dm)
         await db.commit()
         await db.refresh(dm)
@@ -240,6 +319,9 @@ class ChatService:
             "dialect_name": dm.source_dialect,
             "original_text": dm.original_text,
             "translated_text": dm.translated_text,
+            "is_encrypted": dm.is_encrypted,
+            "ciphertext": dm.ciphertext,
+            "sender_pub": dm.sender_pub,
             "audio_url": dm.audio_url,
             "is_me": True,
             "created_at": dm.created_at.isoformat(),

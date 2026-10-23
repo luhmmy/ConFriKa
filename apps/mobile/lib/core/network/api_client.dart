@@ -262,6 +262,35 @@ class ConFriKaApiClient {
     await _post('/api/v1/chat/dm/${Uri.encodeComponent(username)}/read', {});
   }
 
+  // ── E2E encryption key exchange ───────────────────────────────────────
+  Future<void> uploadPublicKey(String publicKey) async {
+    await _put('/api/v1/chat/keys/me', {'public_key': publicKey});
+  }
+
+  /// Fetch a user's E2E key info: {public_key, primary_dialect, full_name}.
+  /// public_key is null if they haven't registered one.
+  Future<Map<String, dynamic>> peerKeyInfo(String username) async =>
+      (await _get('/api/v1/chat/keys/${Uri.encodeComponent(username)}'))
+          as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> sendEncryptedDirectMessage({
+    required String recipientUsername,
+    required String ciphertext,
+    required String senderPub,
+    required String sourceDialect,
+    String? targetDialect,
+  }) async {
+    return (await _post('/api/v1/chat/dm', {
+      'recipient_username': recipientUsername,
+      'is_encrypted': true,
+      'ciphertext': ciphertext,
+      'sender_pub': senderPub,
+      'source_dialect': sourceDialect,
+      if (targetDialect != null) 'target_dialect': targetDialect,
+      'auto_translate': false,
+    })) as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> sendDirectMessage({
     required String recipientUsername,
     required String text,

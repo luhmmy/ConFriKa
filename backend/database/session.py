@@ -18,6 +18,19 @@ AsyncSessionLocal = async_sessionmaker(
 )
 
 
+async def _ensure_column(conn, table: str, column: str, ddl_type: str) -> None:
+    """Add a column to an existing Postgres table if it isn't there yet."""
+    exists = await conn.scalar(
+        text(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_name = :t AND column_name = :c"
+        ),
+        {"t": table, "c": column},
+    )
+    if not exists:
+        await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl_type}"))
+
+
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -40,6 +53,19 @@ async def init_db():
                 )
                 # Existing users registered before email verification are trusted.
                 await conn.execute(text("UPDATE users SET email_verified = TRUE"))
+
+            # E2E encryption columns, added to tables that predate them.
+            await _ensure_column(conn, "users", "public_key", "TEXT")
+            await _ensure_column(
+                conn, "direct_messages", "is_encrypted",
+                "BOOLEAN NOT NULL DEFAULT FALSE",
+            )
+            await _ensure_column(conn, "direct_messages", "ciphertext", "TEXT")
+            await _ensure_column(conn, "direct_messages", "sender_pub", "TEXT")
+            # original_text may now be null (encrypted messages carry no plaintext).
+            await conn.execute(
+                text("ALTER TABLE direct_messages ALTER COLUMN original_text DROP NOT NULL")
+            )
 
 
 async def get_db():
