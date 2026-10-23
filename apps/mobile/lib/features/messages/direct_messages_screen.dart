@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/network/api_client.dart';
 import '../../core/theme/confrika_theme.dart';
+import '../../core/widgets/user_avatar.dart';
 import 'direct_chat_thread_screen.dart';
 
 /// Private messaging hub: a WhatsApp-style list of 1-on-1 conversations.
@@ -197,12 +198,10 @@ class _DirectMessagesScreenState extends State<DirectMessagesScreen> {
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      leading: CircleAvatar(
+      leading: UserAvatar(
+        name: name,
+        avatarUrl: c['partner_avatar'] as String?,
         radius: 26,
-        backgroundColor: ConFriKaColors.oceanBlue,
-        child: Text(_initials(name),
-            style: const TextStyle(
-                color: Colors.white, fontWeight: FontWeight.bold)),
       ),
       title: Text(name,
           style: const TextStyle(fontWeight: FontWeight.w700),
@@ -246,12 +245,6 @@ class _DirectMessagesScreenState extends State<DirectMessagesScreen> {
       ),
       onTap: () => _openThread(handle, name),
     );
-  }
-
-  static String _initials(String name) {
-    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty);
-    if (parts.isEmpty) return '·';
-    return parts.take(2).map((p) => p[0].toUpperCase()).join();
   }
 
   static String _time(String? iso) {

@@ -170,6 +170,7 @@ async def get_my_profile(current_user: User = Depends(get_current_user)):
         "calls_privacy": current_user.calls_privacy,
         "messages_privacy": current_user.messages_privacy,
         "allow_images": current_user.allow_images,
+        "avatar_url": current_user.avatar_url,
     }
 
 

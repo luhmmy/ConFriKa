@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../core/constants/african_countries.dart';
 import '../../core/network/api_client.dart';
 import '../../core/session.dart';
 import '../../core/theme/confrika_theme.dart';
+import '../../core/widgets/user_avatar.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
@@ -15,8 +17,11 @@ class EditProfileScreen extends StatefulWidget {
 class _EditProfileScreenState extends State<EditProfileScreen> {
   final _nameCtrl = TextEditingController();
   final _originCtrl = TextEditingController();
+  final _picker = ImagePicker();
   late AfricanCountryInfo _country;
   late String _dialect;
+  String? _avatarUrl;
+  bool _uploadingAvatar = false;
   bool _busy = false;
   String? _error;
 
@@ -26,6 +31,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final s = ConFriKaSession.instance;
     _nameCtrl.text = s.displayName;
     _originCtrl.text = (s.user?['origin_region'] as String?) ?? '';
+    _avatarUrl = s.user?['avatar_url'] as String?;
     _country = kAll54AfricanCountries.firstWhere(
       (c) => c.code == s.countryCode,
       orElse: () => kAll54AfricanCountries.firstWhere(
@@ -47,6 +53,21 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     super.dispose();
   }
 
+  Future<void> _pickAvatar() async {
+    final XFile? picked = await _picker.pickImage(
+        source: ImageSource.gallery, imageQuality: 85, maxWidth: 800);
+    if (picked == null) return;
+    setState(() => _uploadingAvatar = true);
+    try {
+      final url = await ConFriKaApiClient.instance.uploadImage(picked.path);
+      setState(() => _avatarUrl = url);
+    } on ApiException catch (e) {
+      setState(() => _error = e.message);
+    } finally {
+      if (mounted) setState(() => _uploadingAvatar = false);
+    }
+  }
+
   Future<void> _save() async {
     if (_nameCtrl.text.trim().length < 2) {
       setState(() => _error = 'Enter your full name.');
@@ -66,6 +87,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         'origin_region': _originCtrl.text.trim(),
         'country_code': _country.code,
         'primary_dialect': _dialect,
+        if (_avatarUrl != null) 'avatar_url': _avatarUrl,
       });
       await ConFriKaSession.instance.updateUser(updated);
       if (mounted) {
@@ -102,6 +124,42 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                 ),
                 const SizedBox(height: 12),
               ],
+              Center(
+                child: GestureDetector(
+                  onTap: _uploadingAvatar ? null : _pickAvatar,
+                  child: Stack(
+                    alignment: Alignment.bottomRight,
+                    children: [
+                      UserAvatar(
+                          name: _nameCtrl.text.isEmpty ? 'You' : _nameCtrl.text,
+                          avatarUrl: _avatarUrl,
+                          radius: 48),
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: const BoxDecoration(
+                          color: ConFriKaColors.savannaGreen,
+                          shape: BoxShape.circle,
+                        ),
+                        child: _uploadingAvatar
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2, color: Colors.white))
+                            : const Icon(Icons.camera_alt,
+                                size: 16, color: Colors.white),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Center(
+                child: Text('Tap to change profile picture',
+                    style: TextStyle(
+                        fontSize: 12, color: Theme.of(context).hintColor)),
+              ),
+              const SizedBox(height: 18),
               TextField(
                 controller: _nameCtrl,
                 decoration: const InputDecoration(

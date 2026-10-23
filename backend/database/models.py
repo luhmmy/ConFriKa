@@ -44,6 +44,8 @@ class User(Base):
     calls_privacy = Column(String(16), default="everyone", nullable=False)
     messages_privacy = Column(String(16), default="everyone", nullable=False)
     allow_images = Column(Boolean, default=True, nullable=False)
+    # Profile picture (public media URL), or null for an initials avatar.
+    avatar_url = Column(Text, nullable=True)
     created_at = Column(DateTime, default=_utcnow)
     updated_at = Column(
         DateTime,
@@ -79,10 +81,13 @@ class DirectMessage(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     sender_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     recipient_username = Column(String(40), nullable=False, index=True)
-    message_type = Column(String(20), default="text")  # 'text' or 'voicenote'
+    message_type = Column(String(20), default="text")  # 'text' | 'voicenote' | 'image' | 'sticker'
     # Plaintext fields (null for E2E-encrypted messages).
     original_text = Column(Text, nullable=True)
     translated_text = Column(Text, nullable=True)
+    # Image/sticker media URL for non-encrypted messages (encrypted images carry
+    # their URL inside the ciphertext payload instead).
+    media_url = Column(Text, nullable=True)
     # End-to-end encryption: ciphertext (base64 nonce|ct|mac of a JSON payload
     # holding original + translated), and the sender's X25519 public key.
     is_encrypted = Column(Boolean, default=False, nullable=False)
@@ -113,6 +118,7 @@ class GlobalSpacesMessage(Base):
     translated_text = Column(Text, nullable=True)
     source_dialect = Column(String(100), nullable=False)
     audio_url = Column(Text, nullable=True)
+    media_url = Column(Text, nullable=True)  # image/sticker URL for public posts
     duration_label = Column(String(10), nullable=True)
     sample_phrase = Column(String(120), nullable=True)
     sample_meaning = Column(String(120), nullable=True)

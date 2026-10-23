@@ -77,6 +77,7 @@ services:
       TURN_SECRET: ${TURN_SECRET:-}
     volumes:
       - model_cache:/opt/confrika/models
+      - media_store:/opt/confrika/media
       - ${NLLB_LOCAL_DIR:-/home/roothawk/confrika_nllb}:/opt/confrika/nllb-local:ro
       - ./secrets/firebase-service-account.json:/run/secrets/firebase-service-account.json:ro
     ports:
@@ -115,3 +116,4 @@ volumes:
   postgres_data_v18:
   redis_data:
   model_cache:
+  media_store:

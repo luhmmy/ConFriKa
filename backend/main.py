@@ -61,6 +61,17 @@ async def security_headers(request: Request, call_next):
 app.include_router(v1_router)
 app.include_router(ws_router)
 
+# Serve uploaded media (profile pictures, image messages) from /media.
+import os  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+
+try:
+    os.makedirs(settings.MEDIA_DIR, exist_ok=True)
+except OSError:
+    pass  # created at runtime by the upload handler when permissions allow
+# check_dir=False so importing the app never requires the media dir to exist yet.
+app.mount("/media", StaticFiles(directory=settings.MEDIA_DIR, check_dir=False), name="media")
+
 
 @app.get("/health", tags=["Monitoring & Health"])
 async def health_check():

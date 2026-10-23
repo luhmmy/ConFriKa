@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     MAX_TEXT_LENGTH: int = 5000
     MAX_AUDIO_BYTES: int = 20 * 1024 * 1024  # 20 MB
 
+    # Media uploads (profile pictures, image messages). Stored on disk and
+    # served from /media. Encrypted DM images are uploaded as ciphertext blobs.
+    MEDIA_DIR: str = "/opt/confrika/media"
+    MEDIA_MAX_BYTES: int = 8 * 1024 * 1024  # 8 MB per image
+
     # Email delivery (transactional OTP + password reset). Provider HTTP API.
     EMAIL_PROVIDER: str = "resend"  # 'resend' | 'sendgrid' | 'mailgun'
     EMAIL_API_KEY: str = ""          # provider secret; empty = dev mode (code logged)

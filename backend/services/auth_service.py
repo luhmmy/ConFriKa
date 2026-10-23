@@ -145,6 +145,7 @@ class UpdateProfileRequest(BaseModel):
     origin_region: Optional[str] = Field(None, min_length=2, max_length=120)
     primary_dialect: Optional[str] = Field(None, min_length=2, max_length=100)
     country_code: Optional[str] = Field(None, min_length=2, max_length=2)
+    avatar_url: Optional[str] = Field(None, max_length=512)
 
     @field_validator("country_code")
     @classmethod
@@ -204,6 +205,7 @@ def _public_user(user: User) -> Dict[str, Any]:
         "calls_privacy": user.calls_privacy,
         "messages_privacy": user.messages_privacy,
         "allow_images": user.allow_images,
+        "avatar_url": user.avatar_url,
     }
 
 
@@ -415,6 +417,8 @@ class AuthService:
             user.primary_dialect = req.primary_dialect.strip()
         if req.country_code is not None:
             user.country_code = req.country_code
+        if req.avatar_url is not None:
+            user.avatar_url = req.avatar_url
         await db.commit()
         await db.refresh(user)
         return _public_user(user)

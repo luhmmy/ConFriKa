@@ -93,4 +93,18 @@ class E2eeService {
     final clear = await _aead.decrypt(box, secretKey: key);
     return utf8.decode(clear);
   }
+
+  /// Encrypt raw bytes (e.g. an image) for a peer; returns nonce|ct|mac bytes.
+  Future<List<int>> encryptBytes(String peerPubB64, List<int> bytes) async {
+    final key = await _sharedKey(peerPubB64);
+    final box = await _aead.encrypt(bytes, secretKey: key);
+    return box.concatenation();
+  }
+
+  /// Decrypt raw bytes produced by [encryptBytes] from the same peer.
+  Future<List<int>> decryptBytes(String peerPubB64, List<int> blob) async {
+    final key = await _sharedKey(peerPubB64);
+    final box = SecretBox.fromConcatenation(blob, nonceLength: 12, macLength: 16);
+    return _aead.decrypt(box, secretKey: key);
+  }
 }

@@ -1,12 +1,17 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../core/crypto/e2ee_service.dart';
 import '../../core/network/api_client.dart';
 import '../../core/session.dart';
 import '../../core/theme/confrika_theme.dart';
+import '../../core/widgets/chat_image.dart';
+import '../../core/widgets/user_avatar.dart';
 
 /// A single 1-on-1 private conversation (WhatsApp-style thread).
 ///
@@ -33,16 +38,19 @@ class _DirectChatThreadScreenState extends State<DirectChatThreadScreen> {
   final _composeCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
 
+  final _picker = ImagePicker();
   List<Map<String, dynamic>> _messages = [];
   bool _loading = true;
   bool _sending = false;
   bool _showTranslation = true;
+  bool _showEmoji = false;
   String? _error;
   Timer? _pollTimer;
 
   // E2E encryption state for this thread.
   String? _partnerPub; // null => partner has no key; chat falls back to plaintext
   String? _partnerDialect;
+  String? _partnerAvatar;
   bool get _encrypted => _partnerPub != null;
 
   @override
@@ -57,6 +65,7 @@ class _DirectChatThreadScreenState extends State<DirectChatThreadScreen> {
       final info = await _api.peerKeyInfo(widget.partnerUsername);
       _partnerPub = info['public_key'] as String?;
       _partnerDialect = info['primary_dialect'] as String?;
+      _partnerAvatar = info['avatar_url'] as String?;
     } catch (_) {}
     await _load(initial: true);
     _pollTimer =
@@ -113,6 +122,7 @@ class _DirectChatThreadScreenState extends State<DirectChatThreadScreen> {
         final payload = jsonDecode(clear) as Map<String, dynamic>;
         m['original_text'] = payload['original'] as String? ?? '';
         m['translated_text'] = payload['translated'] as String?;
+        if (payload['media_url'] != null) m['media_url'] = payload['media_url'];
       } catch (_) {
         m['original_text'] = '🔒 Unable to decrypt';
       }
@@ -180,6 +190,50 @@ class _DirectChatThreadScreenState extends State<DirectChatThreadScreen> {
     }
   }
 
+  Future<void> _pickAndSendImage() async {
+    final XFile? picked =
+        await _picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+    if (picked == null) return;
+    setState(() => _sending = true);
+    final dialect = ConFriKaSession.instance.primaryDialect;
+    try {
+      if (_encrypted) {
+        // Encrypt the image bytes, upload the ciphertext blob, and reference it
+        // inside the encrypted message payload.
+        final bytes = await File(picked.path).readAsBytes();
+        final blob = await E2eeService.instance.encryptBytes(_partnerPub!, bytes);
+        final url = await _api.uploadEncryptedBlob(blob);
+        final payload =
+            jsonEncode({'original': '', 'translated': null, 'media_url': url});
+        final ct = await E2eeService.instance.encryptFor(_partnerPub!, payload);
+        await _api.sendEncryptedDirectMessage(
+          recipientUsername: widget.partnerUsername,
+          ciphertext: ct,
+          senderPub: await E2eeService.instance.publicKey,
+          sourceDialect: dialect,
+          messageType: 'image',
+        );
+      } else {
+        final url = await _api.uploadImage(picked.path);
+        await _api.sendDirectMessage(
+          recipientUsername: widget.partnerUsername,
+          sourceDialect: dialect,
+          messageType: 'image',
+          mediaUrl: url,
+          autoTranslate: false,
+        );
+      }
+      await _load(initial: false);
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -188,15 +242,8 @@ class _DirectChatThreadScreenState extends State<DirectChatThreadScreen> {
         titleSpacing: 0,
         title: Row(
           children: [
-            CircleAvatar(
-              radius: 18,
-              backgroundColor: ConFriKaColors.oceanBlue,
-              child: Text(
-                _initials(widget.partnerName),
-                style: const TextStyle(
-                    color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-              ),
-            ),
+            UserAvatar(
+                name: widget.partnerName, avatarUrl: _partnerAvatar, radius: 18),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -307,7 +354,17 @@ class _DirectChatThreadScreenState extends State<DirectChatThreadScreen> {
           crossAxisAlignment:
               isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
-            Text(primary, style: TextStyle(color: fg, fontSize: 15)),
+            if ((m['message_type'] == 'image' || m['message_type'] == 'sticker') &&
+                m['media_url'] != null) ...[
+              ChatImage(
+                mediaUrl: m['media_url'] as String,
+                encrypted: m['is_encrypted'] == true,
+                peerPub: _partnerPub,
+              ),
+              if (primary.isNotEmpty) const SizedBox(height: 6),
+            ],
+            if (primary.isNotEmpty)
+              Text(primary, style: TextStyle(color: fg, fontSize: 15)),
             if (secondary != null && secondary.isNotEmpty) ...[
               const SizedBox(height: 3),
               Text(
@@ -349,48 +406,84 @@ class _DirectChatThreadScreenState extends State<DirectChatThreadScreen> {
     return SafeArea(
       top: false,
       child: Container(
-        padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
         decoration: BoxDecoration(
           color: theme.colorScheme.surface,
           border: Border(top: BorderSide(color: theme.dividerColor)),
         ),
-        child: Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Expanded(
-              child: TextField(
-                controller: _composeCtrl,
-                minLines: 1,
-                maxLines: 5,
-                textInputAction: TextInputAction.send,
-                onSubmitted: (_) => _send(),
-                decoration: InputDecoration(
-                  hintText: 'Message ${widget.partnerName.split(' ').first}…',
-                  filled: true,
-                  fillColor: theme.colorScheme.surfaceContainerHighest,
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(24),
-                    borderSide: BorderSide.none,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 6, 10, 6),
+              child: Row(
+                children: [
+                  IconButton(
+                    tooltip: 'Emoji',
+                    icon: Icon(_showEmoji
+                        ? Icons.keyboard
+                        : Icons.emoji_emotions_outlined),
+                    onPressed: () {
+                      if (!_showEmoji) FocusScope.of(context).unfocus();
+                      setState(() => _showEmoji = !_showEmoji);
+                    },
+                  ),
+                  IconButton(
+                    tooltip: 'Send image',
+                    icon: const Icon(Icons.image_outlined),
+                    onPressed: _sending ? null : _pickAndSendImage,
+                  ),
+                  Expanded(
+                    child: TextField(
+                      controller: _composeCtrl,
+                      minLines: 1,
+                      maxLines: 5,
+                      textInputAction: TextInputAction.send,
+                      onTap: () {
+                        if (_showEmoji) setState(() => _showEmoji = false);
+                      },
+                      onSubmitted: (_) => _send(),
+                      decoration: InputDecoration(
+                        hintText: 'Message ${widget.partnerName.split(' ').first}…',
+                        filled: true,
+                        fillColor: theme.colorScheme.surfaceContainerHighest,
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 10),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(24),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  CircleAvatar(
+                    radius: 24,
+                    backgroundColor: ConFriKaColors.savannaGreen,
+                    child: _sending
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white))
+                        : IconButton(
+                            icon: const Icon(Icons.send, color: Colors.white),
+                            onPressed: _send,
+                          ),
+                  ),
+                ],
+              ),
+            ),
+            if (_showEmoji)
+              SizedBox(
+                height: 260,
+                child: EmojiPicker(
+                  textEditingController: _composeCtrl,
+                  config: const Config(
+                    height: 260,
+                    checkPlatformCompatibility: true,
                   ),
                 ),
               ),
-            ),
-            const SizedBox(width: 8),
-            CircleAvatar(
-              radius: 24,
-              backgroundColor: ConFriKaColors.savannaGreen,
-              child: _sending
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white))
-                  : IconButton(
-                      icon: const Icon(Icons.send, color: Colors.white),
-                      onPressed: _send,
-                    ),
-            ),
           ],
         ),
       ),
@@ -420,12 +513,6 @@ class _DirectChatThreadScreenState extends State<DirectChatThreadScreen> {
         ],
       ),
     );
-  }
-
-  static String _initials(String name) {
-    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty);
-    if (parts.isEmpty) return '·';
-    return parts.take(2).map((p) => p[0].toUpperCase()).join();
   }
 
   static String _time(String? iso) {

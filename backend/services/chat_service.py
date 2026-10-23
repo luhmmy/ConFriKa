@@ -25,6 +25,7 @@ class SendDmRequest(BaseModel):
     source_dialect: str = "English"
     target_dialect: Optional[str] = None
     audio_url: Optional[str] = None
+    media_url: Optional[str] = None  # image/sticker URL (plaintext messages)
     audio_duration_seconds: Optional[float] = None
     auto_translate: bool = True
 
@@ -33,10 +34,11 @@ class SendSpacesRequest(BaseModel):
     channel_category: str = "all"  # 'all', 'trade', 'culture'
     country_filter: str = "ALL"
     message_type: str = "text"
-    original_text: str = Field(..., min_length=1)
+    original_text: str = Field(default="", max_length=5000)
     source_dialect: str = "English"
     duration_label: Optional[str] = None
     audio_url: Optional[str] = None
+    media_url: Optional[str] = None
     auto_translate: bool = True
 
 
@@ -77,6 +79,7 @@ class ChatService:
             "public_key": user.public_key if user else None,
             "primary_dialect": user.primary_dialect if user else None,
             "full_name": user.full_name if user else None,
+            "avatar_url": user.avatar_url if user else None,
         }
 
     @classmethod
@@ -130,6 +133,8 @@ class ChatService:
                     "ciphertext": m.ciphertext,
                     "sender_pub": m.sender_pub,
                     "audio_url": m.audio_url,
+                    "media_url": m.media_url,
+                    "sender_avatar": sender.avatar_url if sender else None,
                     "is_me": is_me,
                     "is_read": m.is_read,
                     "created_at": m.created_at.isoformat(),
@@ -190,11 +195,13 @@ class ChatService:
                     "last_is_encrypted": False,
                     "last_ciphertext": None,
                     "last_sender_pub": None,
+                    "partner_avatar": None,
                 },
             )
-            # Prefer a real display name when we know the partner user.
+            # Prefer a real display name/avatar when we know the partner user.
             if not is_me and sender is not None:
                 convo["partner_name"] = sender.full_name
+                convo["partner_avatar"] = sender.avatar_url
             # Messages roll forward in time, so the final write is the latest.
             if m.is_encrypted:
                 # The server can't read E2E-encrypted text; the client decrypts
@@ -203,6 +210,12 @@ class ChatService:
                 convo["last_ciphertext"] = m.ciphertext
                 convo["last_sender_pub"] = m.sender_pub
                 convo["last_is_encrypted"] = True
+            elif m.message_type == "image":
+                convo["last_message"] = "📷 Photo"
+                convo["last_is_encrypted"] = False
+            elif m.message_type == "sticker":
+                convo["last_message"] = "💟 Sticker"
+                convo["last_is_encrypted"] = False
             elif m.message_type == "text":
                 convo["last_message"] = m.original_text or ""
                 convo["last_is_encrypted"] = False
@@ -293,18 +306,20 @@ class ChatService:
                 source_dialect=req.source_dialect,
                 target_dialect=target,
                 audio_url=req.audio_url,
+                media_url=req.media_url,
                 audio_duration_seconds=req.audio_duration_seconds,
                 is_read=False,
             )
         else:
-            if not req.original_text:
+            is_media = req.message_type in ("image", "sticker", "voicenote")
+            if not req.original_text and not (is_media and req.media_url):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="A message is required.",
                 )
             # Translate into the recipient's own dialect so they read it natively.
             translated = None
-            if req.auto_translate and req.message_type == "text":
+            if req.auto_translate and req.message_type == "text" and req.original_text:
                 translated = await cls._translate(
                     req.original_text, req.source_dialect, target
                 )
@@ -314,6 +329,7 @@ class ChatService:
                 message_type=req.message_type,
                 original_text=req.original_text,
                 translated_text=translated,
+                media_url=req.media_url,
                 is_encrypted=False,
                 source_dialect=req.source_dialect,
                 target_dialect=target,
@@ -330,7 +346,9 @@ class ChatService:
         preview = (
             "🔒 Encrypted message"
             if dm.is_encrypted
-            else (dm.original_text or "New message")
+            else ("📷 Photo" if dm.message_type == "image"
+                  else "💟 Sticker" if dm.message_type == "sticker"
+                  else dm.original_text or "New message")
         )
         try:
             await PushService.notify_username(
@@ -357,6 +375,8 @@ class ChatService:
             "ciphertext": dm.ciphertext,
             "sender_pub": dm.sender_pub,
             "audio_url": dm.audio_url,
+            "media_url": dm.media_url,
+            "sender_avatar": current_user.avatar_url,
             "is_me": True,
             "created_at": dm.created_at.isoformat(),
         }
@@ -373,6 +393,17 @@ class ChatService:
         stmt = stmt.order_by(GlobalSpacesMessage.created_at.asc()).limit(limit)
         rows = (await db.scalars(stmt)).all()
 
+        # Resolve sender avatars in one query (public feed).
+        sender_ids = {m.sender_id for m in rows}
+        avatars = {
+            uid: av
+            for uid, av in (
+                await db.execute(
+                    select(User.id, User.avatar_url).where(User.id.in_(sender_ids))
+                )
+            ).all()
+        } if sender_ids else {}
+
         return [
             {
                 "id": m.id,
@@ -380,6 +411,7 @@ class ChatService:
                 "sender_username": m.sender_username,
                 "sender_location": m.sender_location,
                 "sender_initials": _initials(m.sender_name),
+                "sender_avatar": avatars.get(m.sender_id),
                 "channel_category": m.channel_category,
                 "dialect_name": m.source_dialect,
                 "message_type": m.message_type,
@@ -387,6 +419,7 @@ class ChatService:
                 "original_text": m.original_text,
                 "translated_text": m.translated_text,
                 "audio_url": m.audio_url,
+                "media_url": m.media_url,
                 "created_at": m.created_at.isoformat(),
             }
             for m in rows
@@ -397,7 +430,7 @@ class ChatService:
         cls, db: AsyncSession, current_user: User, req: SendSpacesRequest
     ) -> Dict[str, Any]:
         translated = None
-        if req.auto_translate and req.message_type == "text":
+        if req.auto_translate and req.message_type == "text" and req.original_text:
             translated = await cls._translate(req.original_text, req.source_dialect, "English")
 
         location = f"{current_user.origin_region}".strip()
@@ -414,6 +447,7 @@ class ChatService:
             source_dialect=req.source_dialect,
             duration_label=req.duration_label,
             audio_url=req.audio_url,
+            media_url=req.media_url,
         )
         db.add(msg)
         await db.commit()
@@ -425,6 +459,7 @@ class ChatService:
             "sender_username": msg.sender_username,
             "sender_location": msg.sender_location,
             "sender_initials": _initials(msg.sender_name),
+            "sender_avatar": current_user.avatar_url,
             "channel_category": msg.channel_category,
             "dialect_name": msg.source_dialect,
             "message_type": msg.message_type,
@@ -432,5 +467,6 @@ class ChatService:
             "original_text": msg.original_text,
             "translated_text": msg.translated_text,
             "audio_url": msg.audio_url,
+            "media_url": msg.media_url,
             "created_at": msg.created_at.isoformat(),
         }

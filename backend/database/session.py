@@ -75,6 +75,10 @@ async def init_db():
                 conn, "users", "allow_images",
                 "BOOLEAN NOT NULL DEFAULT TRUE",
             )
+            # Profile pictures + image/sticker messages.
+            await _ensure_column(conn, "users", "avatar_url", "TEXT")
+            await _ensure_column(conn, "direct_messages", "media_url", "TEXT")
+            await _ensure_column(conn, "global_spaces_messages", "media_url", "TEXT")
             # original_text may now be null (encrypted messages carry no plaintext).
             await conn.execute(
                 text("ALTER TABLE direct_messages ALTER COLUMN original_text DROP NOT NULL")

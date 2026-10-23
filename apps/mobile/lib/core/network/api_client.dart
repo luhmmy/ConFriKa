@@ -268,6 +268,49 @@ class ConFriKaApiClient {
   Future<List<dynamic>> searchDirectory(String query) async =>
       (await _get('/api/v1/contacts/search', {'q': query})) as List<dynamic>;
 
+  // ── Media ─────────────────────────────────────────────────────────────
+  /// Build a full URL from a server-relative media path like "/media/x.png".
+  String mediaUrl(String path) =>
+      path.startsWith('http') ? path : '$baseUrl$path';
+
+  Future<String> _uploadMultipart(http.MultipartFile file) async {
+    final req = http.MultipartRequest('POST', _uri('/api/v1/media/upload'));
+    if (_authToken != null) req.headers['Authorization'] = 'Bearer $_authToken';
+    req.files.add(file);
+    try {
+      final streamed = await req.send().timeout(const Duration(seconds: 45));
+      final res = await http.Response.fromStream(streamed);
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        return (jsonDecode(res.body) as Map<String, dynamic>)['url'] as String;
+      }
+      _fail(res);
+    } on ApiException {
+      rethrow;
+    } catch (e) {
+      throw ApiException(0, 'Upload failed: $e');
+    }
+  }
+
+  /// Upload a plaintext image file; returns its server-relative URL.
+  Future<String> uploadImage(String filePath) async =>
+      _uploadMultipart(await http.MultipartFile.fromPath('file', filePath));
+
+  /// Upload an already-encrypted image blob (octet-stream); returns its URL.
+  Future<String> uploadEncryptedBlob(List<int> bytes) async =>
+      _uploadMultipart(
+          http.MultipartFile.fromBytes('file', bytes, filename: 'img.bin'));
+
+  /// Download raw bytes from a media URL (for encrypted image blobs).
+  Future<List<int>> downloadBytes(String path) async {
+    final res = await http
+        .get(Uri.parse(mediaUrl(path)), headers: {
+          if (_authToken != null) 'Authorization': 'Bearer $_authToken'
+        })
+        .timeout(const Duration(seconds: 30));
+    if (res.statusCode >= 200 && res.statusCode < 300) return res.bodyBytes;
+    throw ApiException(res.statusCode, 'Could not load image');
+  }
+
   // ── Chat ──────────────────────────────────────────────────────────────
   /// WhatsApp-style conversation list: one entry per DM partner.
   Future<List<dynamic>> conversations() async =>
@@ -297,9 +340,11 @@ class ConFriKaApiClient {
     required String senderPub,
     required String sourceDialect,
     String? targetDialect,
+    String messageType = 'text',
   }) async {
     return (await _post('/api/v1/chat/dm', {
       'recipient_username': recipientUsername,
+      'message_type': messageType,
       'is_encrypted': true,
       'ciphertext': ciphertext,
       'sender_pub': senderPub,
@@ -311,14 +356,18 @@ class ConFriKaApiClient {
 
   Future<Map<String, dynamic>> sendDirectMessage({
     required String recipientUsername,
-    required String text,
+    String? text,
     required String sourceDialect,
     String? targetDialect,
+    String messageType = 'text',
+    String? mediaUrl,
     bool autoTranslate = true,
   }) async {
     return (await _post('/api/v1/chat/dm', {
       'recipient_username': recipientUsername,
-      'original_text': text,
+      'message_type': messageType,
+      if (text != null) 'original_text': text,
+      if (mediaUrl != null) 'media_url': mediaUrl,
       'source_dialect': sourceDialect,
       if (targetDialect != null) 'target_dialect': targetDialect,
       'auto_translate': autoTranslate,
@@ -330,14 +379,18 @@ class ConFriKaApiClient {
           as List<dynamic>;
 
   Future<Map<String, dynamic>> postSpaces({
-    required String text,
+    String text = '',
     required String sourceDialect,
     String channel = 'all',
     String country = 'ALL',
+    String messageType = 'text',
+    String? mediaUrl,
     bool autoTranslate = true,
   }) async {
     return (await _post('/api/v1/chat/spaces', {
       'original_text': text,
+      'message_type': messageType,
+      if (mediaUrl != null) 'media_url': mediaUrl,
       'source_dialect': sourceDialect,
       'channel_category': channel,
       'country_filter': country,

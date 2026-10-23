@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../core/network/api_client.dart';
 import '../../core/session.dart';
-import '../../core/theme/confrika_theme.dart';
 import '../../core/widgets/confrika_brand_widgets.dart';
 import 'change_password_screen.dart';
+import '../../core/widgets/user_avatar.dart';
 import 'edit_profile_screen.dart';
 import 'privacy_settings_screen.dart';
 
@@ -75,14 +75,10 @@ class _ProfileAndTrustScreenState extends State<ProfileAndTrustScreen> {
                 padding: const EdgeInsets.all(16),
                 child: Row(
                   children: [
-                    CircleAvatar(
+                    UserAvatar(
+                      name: s.displayName,
+                      avatarUrl: s.user?['avatar_url'] as String?,
                       radius: 28,
-                      backgroundColor: ConFriKaColors.oceanBlue,
-                      foregroundColor: Colors.white,
-                      child: Text(
-                        _initials(s.displayName),
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-                      ),
                     ),
                     const SizedBox(width: 14),
                     Expanded(
@@ -235,11 +231,6 @@ class _ProfileAndTrustScreenState extends State<ProfileAndTrustScreen> {
         subtitle: Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
         dense: true,
       );
-
-  String _initials(String name) {
-    final parts = name.split(' ').where((w) => w.isNotEmpty).toList();
-    return parts.take(2).map((w) => w[0]).join().toUpperCase();
-  }
 
   void _showDoc(BuildContext context, String title, String body) {
     showModalBottomSheet(
