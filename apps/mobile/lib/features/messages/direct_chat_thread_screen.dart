@@ -495,7 +495,7 @@ class _DirectChatThreadScreenState extends State<DirectChatThreadScreen> {
     final color = enc ? ConFriKaColors.savannaGreen : ConFriKaColors.amberHighlight;
     final text = enc
         ? 'End-to-end encrypted · auto-translated into each person’s dialect'
-        : 'Not encrypted yet — recipient hasn’t set up a key';
+        : 'Not encrypted yet. Recipient hasn’t set up a key';
     return Container(
       width: double.infinity,
       color: color.withValues(alpha: 0.12),

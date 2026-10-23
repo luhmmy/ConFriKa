@@ -808,7 +808,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         padding: const EdgeInsets.symmetric(vertical: 10),
                       ),
                       child: const Text(
-                        '📞 No-App Call — Coming Soon',
+                        '📞 No-App Call · Coming Soon',
                         style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Colors.grey),
                       ),
                     ),

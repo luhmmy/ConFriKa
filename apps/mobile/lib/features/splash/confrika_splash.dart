@@ -142,11 +142,24 @@ class _ConFriKaSplashState extends State<ConFriKaSplash>
                   child: const ConFriKaWordmark(fontSize: 46),
                 ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 8),
+              FadeTransition(
+                opacity: _nameFade,
+                child: const Text(
+                  'Connect Africa',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: .5,
+                    color: ConFriKaColors.sunsetOrange,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
               FadeTransition(
                 opacity: _taglineFade,
                 child: const Text(
-                  'Many languages. One connection. One Africa.',
+                  'Many languages. One continent.',
                   style: TextStyle(fontSize: 13, color: Colors.grey),
                 ),
               ),

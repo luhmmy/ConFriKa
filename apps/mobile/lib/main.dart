@@ -30,7 +30,7 @@ class _ConFriKaAppState extends State<ConFriKaApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'ConFriKa — Connect Africa',
+      title: 'ConFriKa · Connect Africa',
       debugShowCheckedModeBanner: false,
       theme: ConFriKaTheme.lightTheme,
       darkTheme: ConFriKaTheme.darkTheme,

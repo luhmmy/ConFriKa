@@ -77,7 +77,7 @@ class _LearnAndToneCoachScreenState extends State<LearnAndToneCoachScreen> {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
           Text(
             native
-                ? 'You speak a tonal dialect — practise to see your pitch live, and tap '
+                ? 'You speak a tonal dialect. Practise to see your pitch live, and tap '
                     '“Teach” to add your native pronunciation so others learn from you.'
                 : 'Tap Practice and say the word. Your pitch (F0) is tracked live so you '
                     'can see it rise and fall, with on-the-spot guidance and a match score.',
@@ -280,7 +280,7 @@ class _TonePracticeCardState extends State<_TonePracticeCard> {
       }
     }
     if (current == null) {
-      _liveHint = 'Speak up — no pitch detected yet';
+      _liveHint = 'Speak up, no pitch detected yet';
       return;
     }
     // Align elapsed speech (~0.9s nominal) to a position in the target contour.
@@ -292,7 +292,7 @@ class _TonePracticeCardState extends State<_TonePracticeCard> {
     } else if (diff < -0.8) {
       _liveHint = '↓ Lower your pitch';
     } else {
-      _liveHint = '✓ On target — hold it';
+      _liveHint = '✓ On target, hold it';
     }
   }
 

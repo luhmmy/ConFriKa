@@ -101,11 +101,11 @@ class _ProfileAndTrustScreenState extends State<ProfileAndTrustScreen> {
         Card(
           child: Column(
             children: [
-              _row(Icons.mail_outline, 'Email', user['email']?.toString() ?? '—'),
+              _row(Icons.mail_outline, 'Email', user['email']?.toString() ?? 'Not set'),
               _row(Icons.public, 'Country', '${user['country_code'] ?? ''}'),
-              _row(Icons.place_outlined, 'Origin', user['origin_region']?.toString() ?? '—'),
+              _row(Icons.place_outlined, 'Origin', user['origin_region']?.toString() ?? 'Not set'),
               _row(Icons.record_voice_over_outlined, 'Dialect',
-                  user['primary_dialect']?.toString() ?? '—'),
+                  user['primary_dialect']?.toString() ?? 'Not set'),
             ],
           ),
         ),

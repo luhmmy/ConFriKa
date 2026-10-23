@@ -323,7 +323,7 @@ class _ConFriKaShellState extends State<ConFriKaShell> {
     return Tooltip(
       message: online
           ? '${_onlineCount ?? 0} people online'
-          : 'Offline — reconnecting',
+          : 'Reconnecting…',
       child: Container(
         height: 32,
         padding: const EdgeInsets.symmetric(horizontal: 9),

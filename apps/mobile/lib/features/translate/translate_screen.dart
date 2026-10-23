@@ -297,7 +297,7 @@ class _TranslateScreenState extends State<TranslateScreen> {
                   )
                 else
                   SelectableText(
-                    _translatedText.isEmpty ? '—' : _translatedText,
+                    _translatedText.isEmpty ? '…' : _translatedText,
                     style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
                   ),
                 if (_translatedText.isNotEmpty && !unsupported && _error == null) ...[

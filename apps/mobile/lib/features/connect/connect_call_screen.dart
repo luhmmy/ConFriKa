@@ -114,8 +114,8 @@ class _ConnectCallScreenState extends State<ConnectCallScreen> {
                   '• Audio is peer-to-peer via WebRTC; media never passes through our '
                   'servers (only signaling does).\n'
                   '• Calls are end-to-end encrypted by WebRTC (DTLS-SRTP).\n'
-                  '• Live in-call speech translation — hearing the other person in '
-                  'your language, in their voice — is being wired up next.',
+                  '• Live in-call speech translation: hearing the other person in '
+                  'your language, in their voice, is being wired up next.',
                   style: TextStyle(fontSize: 12),
                 ),
               ],

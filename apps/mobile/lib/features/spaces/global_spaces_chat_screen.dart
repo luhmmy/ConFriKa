@@ -271,7 +271,7 @@ class _GlobalSpacesChatScreenState extends State<GlobalSpacesChatScreen> {
                   color: Colors.black.withValues(alpha: 0.03),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Text(body.isEmpty ? '—' : body,
+                child: Text(body.isEmpty ? '…' : body,
                     style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
               ),
               if (translated.isNotEmpty && original.isNotEmpty)

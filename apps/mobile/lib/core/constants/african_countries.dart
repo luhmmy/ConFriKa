@@ -15,7 +15,7 @@ class AfricanCountryInfo {
     required this.greeting,
   });
 
-  String get displayLabel => '$flag $name ($region) — ${dialects.join(', ')}';
+  String get displayLabel => '$flag $name ($region) · ${dialects.join(', ')}';
   String get primaryDialectLabel => '$flag ${dialects.first} ($name)';
 }
 
@@ -82,7 +82,7 @@ const List<AfricanCountryInfo> kAll54AfricanCountries = [
       'Hausa (Kano / Kananci)',
       'Hausa (Sokoto / Sakkwatanci)',
       'Hausa (Zaria / Zazzaganci & Katsina)',
-      'Nigerian Pidgin (Naija — Nationwide)',
+      'Nigerian Pidgin (Naija, Nationwide)',
       'Fulfulde (Adamawa / Sokoto / Gombe)',
       'Kanuri (Yerwa / Maiduguri / Borno)',
       'Ibibio (Akwa Ibom)',
