@@ -1,5 +1,5 @@
 import math
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 
 
@@ -11,6 +11,9 @@ class TonalMinimalPair(BaseModel):
     meaning: str
     target_semitones: List[float]
     coaching_tip: str
+    # Crowd-sourced target averaged from native-speaker recordings (if enough).
+    community_target_semitones: Optional[List[float]] = None
+    community_sample_count: int = 0
 
 
 class ToneCalibrationRequest(BaseModel):
@@ -94,6 +97,13 @@ class ToneCoachService:
         return cls.MINIMAL_PAIRS
 
     @classmethod
+    def get_pair(cls, word_id: str) -> TonalMinimalPair:
+        """Resolve a pair by id, falling back to ọkọ̀ (vehicle) like the scorer."""
+        return next(
+            (p for p in cls.MINIMAL_PAIRS if p.id == word_id), cls.MINIMAL_PAIRS[1]
+        )
+
+    @classmethod
     def hz_to_semitones(cls, frequency_hz: float, baseline_f0_hz: float) -> float:
         if frequency_hz <= 0 or baseline_f0_hz <= 0:
             return 0.0
@@ -101,13 +111,16 @@ class ToneCoachService:
 
     @classmethod
     def evaluate_tone_performance(
-        cls, req: ToneCalibrationRequest
+        cls,
+        req: ToneCalibrationRequest,
+        target_override: Optional[List[float]] = None,
     ) -> ToneCalibrationResponse:
         pair = next((p for p in cls.MINIMAL_PAIRS if p.id == req.target_word_id), None)
         if not pair:
             pair = cls.MINIMAL_PAIRS[1]  # Default to ọkọ̀ (vehicle)
 
-        target = pair.target_semitones
+        # Prefer the native-speaker community target when one is supplied.
+        target = target_override if target_override else pair.target_semitones
         learner = req.learner_semitones
 
         # Pad or interpolate learner curve to match target curve length

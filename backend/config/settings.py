@@ -29,6 +29,19 @@ class Settings(BaseSettings):
     MAX_TEXT_LENGTH: int = 5000
     MAX_AUDIO_BYTES: int = 20 * 1024 * 1024  # 20 MB
 
+    # Email delivery (transactional OTP + password reset). Provider HTTP API.
+    EMAIL_PROVIDER: str = "resend"  # 'resend' | 'sendgrid' | 'mailgun'
+    EMAIL_API_KEY: str = ""          # provider secret; empty = dev mode (code logged)
+    EMAIL_FROM: str = "ConFriKa <no-reply@confrika.com>"
+    MAILGUN_DOMAIN: str = ""         # required only for the mailgun provider
+    OTP_LENGTH: int = 6
+    OTP_TTL_MINUTES: int = 10
+    OTP_MAX_ATTEMPTS: int = 5
+
+    @property
+    def email_configured(self) -> bool:
+        return bool(self.EMAIL_API_KEY and self.EMAIL_API_KEY.strip())
+
     # Translation engine
     TRANSLATION_PROVIDER: str = "nllb"  # 'nllb' | 'echo' (echo = passthrough, dev only)
     NLLB_MODEL: str = "facebook/nllb-200-distilled-600M"

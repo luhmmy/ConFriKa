@@ -14,6 +14,7 @@ backend/.env
 # Flutter / Dart
 apps/mobile/.dart_tool/
 apps/mobile/build/
+apps/mobile/android/build/
 apps/mobile/.flutter-plugins
 apps/mobile/.flutter-plugins-dependencies
 apps/mobile/android/.gradle/

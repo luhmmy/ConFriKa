@@ -1,5 +1,6 @@
 # Production Dockerfile for the ConFriKa backend (FastAPI + self-hosted NLLB-200).
-FROM python:3.11-slim
+# Python pinned to 3.14 (latest with CPU torch wheels for every dep incl. sentencepiece).
+FROM python:3.14-slim
 
 WORKDIR /app
 
@@ -16,7 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install CPU-only torch first (smaller, no CUDA) then the rest.
 COPY requirements.txt .
-RUN pip install --no-cache-dir torch==2.6.0 --index-url https://download.pytorch.org/whl/cpu \
+RUN pip install --no-cache-dir torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu \
     && pip install --no-cache-dir -r requirements.txt
 
 # Application code is importable as the `backend` package.

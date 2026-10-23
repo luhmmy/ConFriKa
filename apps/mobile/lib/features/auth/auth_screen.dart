@@ -5,6 +5,8 @@ import '../../core/network/api_client.dart';
 import '../../core/session.dart';
 import '../../core/theme/confrika_theme.dart';
 import '../../core/widgets/confrika_brand_widgets.dart';
+import 'forgot_password_screen.dart';
+import 'otp_verification_screen.dart';
 
 class ConFriKaAuthScreen extends StatefulWidget {
   const ConFriKaAuthScreen({super.key});
@@ -21,6 +23,7 @@ class _ConFriKaAuthScreenState extends State<ConFriKaAuthScreen> {
 
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
   final _fullNameController = TextEditingController();
   final _usernameController = TextEditingController();
   final _originController = TextEditingController();
@@ -47,6 +50,7 @@ class _ConFriKaAuthScreenState extends State<ConFriKaAuthScreen> {
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
+    _confirmPasswordController.dispose();
     _fullNameController.dispose();
     _usernameController.dispose();
     _originController.dispose();
@@ -55,18 +59,31 @@ class _ConFriKaAuthScreenState extends State<ConFriKaAuthScreen> {
     super.dispose();
   }
 
-  Future<void> _submit(Future<Map<String, dynamic>> Function() action) async {
+  Future<void> _handleSignUp() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
     setState(() {
       _busy = true;
       _error = null;
     });
+    final email = _emailController.text.trim();
     try {
-      final data = await action();
-      await ConFriKaSession.instance.setAuthenticated(
-        data['access_token'] as String,
-        (data['user'] as Map).cast<String, dynamic>(),
+      final res = await ConFriKaApiClient.instance.signUp(
+        email: email,
+        password: _passwordController.text,
+        fullName: _fullNameController.text.trim(),
+        username: _usernameController.text.trim(),
+        countryCode: _selectedCountry.code,
+        originRegion: _originController.text.trim(),
+        primaryDialect: _selectedDialect,
       );
-      // The root AnimatedBuilder swaps to the shell automatically.
+      if (!mounted) return;
+      // Email verification required before the account is active.
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => OtpVerificationScreen(
+          email: email,
+          devCode: res['debug_code'] as String?,
+        ),
+      ));
     } on ApiException catch (e) {
       setState(() => _error = e.message);
     } catch (e) {
@@ -76,50 +93,100 @@ class _ConFriKaAuthScreenState extends State<ConFriKaAuthScreen> {
     }
   }
 
-  void _handleSignUp() {
-    if (!(_formKey.currentState?.validate() ?? false)) return;
-    _submit(() => ConFriKaApiClient.instance.signUp(
-          email: _emailController.text.trim(),
-          password: _passwordController.text,
-          fullName: _fullNameController.text.trim(),
-          username: _usernameController.text.trim(),
-          countryCode: _selectedCountry.code,
-          originRegion: _originController.text.trim(),
-          primaryDialect: _selectedDialect,
-        ));
-  }
-
-  void _handleLogin() {
-    if (_loginIdentifierController.text.trim().isEmpty ||
-        _loginPasswordController.text.isEmpty) {
+  Future<void> _handleLogin() async {
+    final identifier = _loginIdentifierController.text.trim();
+    if (identifier.isEmpty || _loginPasswordController.text.isEmpty) {
       setState(() => _error = 'Enter your email/username and password.');
       return;
     }
-    _submit(() => ConFriKaApiClient.instance.login(
-          emailOrUsername: _loginIdentifierController.text.trim(),
-          password: _loginPasswordController.text,
-        ));
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final data = await ConFriKaApiClient.instance.login(
+        emailOrUsername: identifier,
+        password: _loginPasswordController.text,
+      );
+      await ConFriKaSession.instance.setAuthenticated(
+        data['access_token'] as String,
+        (data['user'] as Map).cast<String, dynamic>(),
+      );
+      // The root AnimatedBuilder swaps to the shell automatically.
+    } on ApiException catch (e) {
+      // Correct password but unverified email: route to the OTP screen (a fresh
+      // code was already sent). We need an email address for that screen.
+      if (e.statusCode == 403 && e.message.contains('email_not_verified')) {
+        if (identifier.contains('@') && mounted) {
+          Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => OtpVerificationScreen(email: identifier),
+          ));
+          return;
+        }
+        setState(() => _error =
+            'Your email isn\'t verified yet. Log in with your email address to get a new code.');
+      } else {
+        setState(() => _error = e.message);
+      }
+    } catch (e) {
+      setState(() => _error = 'Something went wrong: $e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _openForgotPassword() {
+    final id = _loginIdentifierController.text.trim();
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ForgotPasswordScreen(
+        initialEmail: id.contains('@') ? id : null,
+      ),
+    ));
+  }
+
+  /// Password must be at least 8 characters and mix character types:
+  /// an uppercase letter, a lowercase letter, and a number.
+  String? _validatePassword(String? val) {
+    final v = val ?? '';
+    if (v.length < 8) return 'Password must be at least 8 characters';
+    if (!RegExp(r'[A-Z]').hasMatch(v)) return 'Add at least one uppercase letter';
+    if (!RegExp(r'[a-z]').hasMatch(v)) return 'Add at least one lowercase letter';
+    if (!RegExp(r'[0-9]').hasMatch(v)) return 'Add at least one number';
+    return null;
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        centerTitle: true,
-        title: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ConFriKaAppLogo(size: 30),
-            SizedBox(width: 8),
-            ConFriKaWordmark(fontSize: 18),
-          ],
-        ),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Card(
-            clipBehavior: Clip.antiAlias,
+      body: SafeArea(
+        child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: ConstrainedBox(
+            // Fill the viewport so short content (Log In) centres with equal
+            // space above and below; tall content (Sign Up) simply scrolls.
+            constraints: BoxConstraints(minHeight: constraints.maxHeight - 32),
+            // Bias slightly upward so there is a little more space below the
+            // card than above (most visible on the short Log In layout).
+            child: Align(
+              alignment: const Alignment(0, -0.2),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Logo + name sit ABOVE the card (outside the box), larger.
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 20),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ConFriKaAppLogo(size: 64),
+                        SizedBox(width: 14),
+                        ConFriKaWordmark(fontSize: 34),
+                      ],
+                    ),
+                  ),
+                  Card(
+                    clipBehavior: Clip.antiAlias,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -132,7 +199,7 @@ class _ConFriKaAuthScreenState extends State<ConFriKaAuthScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'WELCOME TO CONFRIKA',
+                          'WELCOME TO ConFriKa',
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w800,
@@ -197,42 +264,18 @@ class _ConFriKaAuthScreenState extends State<ConFriKaAuthScreen> {
                 ),
               ],
             ),
+              ),
+                ],
+              ),
+            ),
           ),
-        ],
+        ),
       ),
+    ),
     );
   }
 
   List<Widget> _signUpFields() => [
-        TextFormField(
-          controller: _emailController,
-          keyboardType: TextInputType.emailAddress,
-          decoration: const InputDecoration(
-            labelText: 'Email address',
-            prefixIcon: Icon(Icons.mail_outline),
-            border: OutlineInputBorder(),
-            isDense: true,
-          ),
-          validator: (val) {
-            final v = (val ?? '').trim();
-            final ok = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(v);
-            return ok ? null : 'Enter a valid email address';
-          },
-        ),
-        const SizedBox(height: 12),
-        TextFormField(
-          controller: _passwordController,
-          obscureText: true,
-          decoration: const InputDecoration(
-            labelText: 'Password (min 8 characters)',
-            prefixIcon: Icon(Icons.lock_outline),
-            border: OutlineInputBorder(),
-            isDense: true,
-          ),
-          validator: (val) =>
-              (val == null || val.length < 8) ? 'Password must be at least 8 characters' : null,
-        ),
-        const SizedBox(height: 12),
         TextFormField(
           controller: _fullNameController,
           decoration: const InputDecoration(
@@ -259,6 +302,54 @@ class _ConFriKaAuthScreenState extends State<ConFriKaAuthScreen> {
                 ? null
                 : '3-38 letters, digits, or underscore';
           },
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _emailController,
+          keyboardType: TextInputType.emailAddress,
+          decoration: const InputDecoration(
+            labelText: 'Email address',
+            prefixIcon: Icon(Icons.mail_outline),
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+          validator: (val) {
+            final v = (val ?? '').trim();
+            final ok = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(v);
+            return ok ? null : 'Enter a valid email address';
+          },
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _passwordController,
+          obscureText: true,
+          onChanged: (_) {
+            // Re-run confirm-password validation as the user edits the password.
+            if (_confirmPasswordController.text.isNotEmpty) {
+              _formKey.currentState?.validate();
+            }
+          },
+          decoration: const InputDecoration(
+            labelText: 'Password',
+            helperText: 'Min 8 chars, with uppercase, lowercase & a number',
+            prefixIcon: Icon(Icons.lock_outline),
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+          validator: _validatePassword,
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _confirmPasswordController,
+          obscureText: true,
+          decoration: const InputDecoration(
+            labelText: 'Confirm password',
+            prefixIcon: Icon(Icons.lock_outline),
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+          validator: (val) =>
+              (val != _passwordController.text) ? 'Passwords do not match' : null,
         ),
         const SizedBox(height: 12),
         DropdownButtonFormField<AfricanCountryInfo>(
@@ -362,7 +453,18 @@ class _ConFriKaAuthScreenState extends State<ConFriKaAuthScreen> {
             isDense: true,
           ),
         ),
-        const SizedBox(height: 16),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton(
+            onPressed: _busy ? null : _openForgotPassword,
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              minimumSize: const Size(0, 36),
+            ),
+            child: const Text('Forgot password?', style: TextStyle(fontSize: 12)),
+          ),
+        ),
+        const SizedBox(height: 6),
         SizedBox(
           width: double.infinity,
           child: FilledButton.icon(

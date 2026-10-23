@@ -33,7 +33,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<dynamic> _contacts = [];
   bool _loadingContacts = true;
   String? _contactsError;
-  int _onlineCount = 428;
+  int? _onlineCount;
   bool _adding = false;
 
   // Selected Country, Spoken Language, and Dialect (Defaulting to Nigeria / Yoruba)
@@ -41,9 +41,11 @@ class _HomeScreenState extends State<HomeScreen> {
   String _selectedSpokenLang = '🌍 English';
   late String _selectedDialect;
 
-  final int _streakDays = 12;
-  final int _xp = 2480;
-  final int _wordsLearned = 148;
+  // Real learning progress, loaded from /api/v1/auth/me/stats (never fabricated).
+  int _streakDays = 0;
+  int _xp = 0;
+  int _wordsLearned = 0;
+  bool _isCalibrated = false;
 
   final List<String> _spokenLanguages = const [
     '🌍 English',
@@ -61,12 +63,22 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    // Default country: Nigeria (NG)
+    // Reflect the signed-in user's real country & dialect (falls back to NG
+    // only if the profile code is unrecognised).
+    final s = ConFriKaSession.instance;
     _selectedCountry = kAll54AfricanCountries.firstWhere(
-      (c) => c.code == 'NG',
-      orElse: () => kAll54AfricanCountries.first,
+      (c) => c.code == s.countryCode,
+      orElse: () => kAll54AfricanCountries.firstWhere(
+        (c) => c.code == 'NG',
+        orElse: () => kAll54AfricanCountries.first,
+      ),
     );
-    _selectedDialect = '🇳🇬 Yorùbá (Ìgbómìnà)';
+    final mineFirst = s.primaryDialect.split(' ').first;
+    final dialect = _selectedCountry.dialects.firstWhere(
+      (d) => s.primaryDialect.contains(d) || d.contains(mineFirst),
+      orElse: () => _selectedCountry.dialects.first,
+    );
+    _selectedDialect = '${_selectedCountry.flag} $dialect';
     _refresh();
   }
 
@@ -82,12 +94,20 @@ class _HomeScreenState extends State<HomeScreen> {
       _contactsError = null;
     });
     try {
-      final results = await Future.wait([_api.contacts(), _api.health()]);
+      final results = await Future.wait([
+        _api.contacts(),
+        _api.health(),
+        _api.meStats(),
+      ]);
       if (!mounted) return;
       setState(() {
         _contacts = results[0] as List<dynamic>;
-        final count = (results[1] as Map)['online_users'] as int?;
-        if (count != null && count > 0) _onlineCount = count;
+        _onlineCount = ((results[1] as Map)['online_users'] as num?)?.toInt();
+        final stats = results[2] as Map<String, dynamic>;
+        _streakDays = (stats['streak_days'] as num?)?.toInt() ?? 0;
+        _xp = (stats['xp'] as num?)?.toInt() ?? 0;
+        _wordsLearned = (stats['words_learned'] as num?)?.toInt() ?? 0;
+        _isCalibrated = stats['is_calibrated'] == true;
         _loadingContacts = false;
       });
     } on ApiException catch (e) {
@@ -204,9 +224,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                         text: '${_selectedCountry.greeting}, ',
                                       ),
                                       TextSpan(
-                                        text: session.displayName.isNotEmpty
-                                            ? '${session.displayName}!'
-                                            : 'Tunde!',
+                                        text: '${session.displayName}!',
                                         style: const TextStyle(
                                           color: ConFriKaColors.oceanBlue,
                                         ),
@@ -235,7 +253,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ),
                                 ),
                                 child: Text(
-                                  '🔥 $_streakDays Days',
+                                  _streakDays > 0
+                                      ? '🔥 $_streakDays-day streak'
+                                      : '🔥 Start your streak',
                                   style: const TextStyle(
                                     color: ConFriKaColors.sunsetOrange,
                                     fontSize: 12,
@@ -308,7 +328,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   return DropdownMenuItem<AfricanCountryInfo>(
                                     value: c,
                                     child: Text(
-                                      '${c.flag} ${c.name} (${c.dialects.length > 2 ? "${c.dialects.length * 15}+ Languages" : c.dialects.first}) (${c.region})',
+                                      '${c.flag} ${c.name} • ${c.region}',
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   );
@@ -480,8 +500,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                         Container(
                                           width: 6,
                                           height: 6,
-                                          decoration: const BoxDecoration(
-                                            color: Color(0xFF10B981),
+                                          decoration: BoxDecoration(
+                                            color: _isCalibrated
+                                                ? const Color(0xFF10B981)
+                                                : Colors.grey,
                                             shape: BoxShape.circle,
                                           ),
                                         ),
@@ -489,7 +511,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
-                                      'Calibrated • $_wordsLearned words learned',
+                                      _isCalibrated
+                                          ? 'Calibrated • $_wordsLearned words learned'
+                                          : 'Not calibrated yet • Tap to start',
                                       style: const TextStyle(fontSize: 11, color: Colors.grey),
                                     ),
                                   ],
@@ -569,7 +593,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                               const SizedBox(width: 4),
                               Text(
-                                '$_onlineCount Online',
+                                _onlineCount != null ? '$_onlineCount online' : 'Live',
                                 style: const TextStyle(
                                   color: Color(0xFF10B981),
                                   fontWeight: FontWeight.w800,
@@ -699,7 +723,7 @@ class _HomeScreenState extends State<HomeScreen> {
           else if (_contactsError != null)
             _infoCard('Could not load contacts: $_contactsError', Colors.redAccent)
           else if (_contacts.isEmpty)
-            _defaultMockContacts()
+            _emptyContacts()
           else
             ..._contacts.map(_contactCard),
 
@@ -816,28 +840,32 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _defaultMockContacts() {
-    final defaultList = [
-      {
-        'name': 'Chinedu Okafor',
-        'username': '@chinedu_okafor',
-        'origin': 'Anambra, Nigeria',
-        'dialect': 'Igbo (Onitsha)',
-        'initials': 'CO',
-        'flag': '🇳🇬',
-        'is_online': true,
-      },
-      {
-        'name': 'Jabari Kamau',
-        'username': '@jabari_kamau',
-        'origin': 'Nairobi, Kenya',
-        'dialect': 'Swahili',
-        'initials': 'JK',
-        'flag': '🇰🇪',
-        'is_online': true,
-      },
-    ];
-    return Column(children: defaultList.map(_contactCard).toList());
+  Widget _emptyContacts() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 0,
+      color: isDark ? const Color(0xFF1E293B) : Colors.white,
+      child: const Padding(
+        padding: EdgeInsets.all(20),
+        child: Column(
+          children: [
+            Text('👋', style: TextStyle(fontSize: 28)),
+            SizedBox(height: 8),
+            Text(
+              'No contacts yet',
+              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+            ),
+            SizedBox(height: 4),
+            Text(
+              'Add someone by their @username above to start calling and messaging.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _infoCard(String text, Color color) => Card(
@@ -847,6 +875,16 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Text(text, style: TextStyle(color: color, fontSize: 13)),
         ),
       );
+
+  Color _avatarColor(Map<String, dynamic> m) {
+    const palette = [
+      ConFriKaColors.oceanBlue,
+      ConFriKaColors.sunsetOrange,
+      ConFriKaColors.savannaGreen,
+    ];
+    final key = (m['username'] ?? m['name'] ?? '').toString();
+    return palette[key.hashCode.abs() % palette.length];
+  }
 
   Widget _contactCard(dynamic c) {
     final m = c as Map<String, dynamic>;
@@ -873,20 +911,34 @@ class _HomeScreenState extends State<HomeScreen> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  CircleAvatar(
-                    radius: 22,
-                    backgroundColor: initials == 'JK'
-                        ? ConFriKaColors.sunsetOrange.withValues(alpha: 0.15)
-                        : ConFriKaColors.oceanBlue.withValues(alpha: 0.15),
-                    child: Text(
-                      initials,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w900,
-                        color: initials == 'JK'
-                            ? ConFriKaColors.sunsetOrange
-                            : ConFriKaColors.oceanBlue,
+                  Stack(
+                    children: [
+                      CircleAvatar(
+                        radius: 22,
+                        backgroundColor: _avatarColor(m).withValues(alpha: 0.15),
+                        child: Text(
+                          initials,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w900,
+                            color: _avatarColor(m),
+                          ),
+                        ),
                       ),
-                    ),
+                      if (online)
+                        Positioned(
+                          right: 0,
+                          bottom: 0,
+                          child: Container(
+                            width: 12,
+                            height: 12,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF10B981),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 2),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                   const SizedBox(width: 12),
                   Expanded(

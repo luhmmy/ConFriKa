@@ -5,7 +5,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from ...database.session import get_db
 from ...database.models import User
-from ...services.auth_service import AuthService, SignUpRequest, LoginRequest, TokenResponse
+from ...services.auth_service import (
+    AuthService,
+    SignUpRequest,
+    LoginRequest,
+    TokenResponse,
+    OtpSentResponse,
+    VerifyEmailRequest,
+    EmailRequest,
+    ResetPasswordRequest,
+    ChangePasswordRequest,
+    UpdateProfileRequest,
+)
+from ...services.learning_stats_service import LearningStatsService
 
 
 class TonalBaselineRequest(BaseModel):
@@ -42,16 +54,60 @@ async def get_current_user(
     return user
 
 
-@router.post("/signup", response_model=TokenResponse)
+@router.post("/signup", response_model=OtpSentResponse)
 async def signup(req: SignUpRequest, db: AsyncSession = Depends(get_db)):
-    """Register a new ConFriKa user across any of the 54 African countries."""
+    """Begin registration: create the account and email a verification code."""
     return await AuthService.register_user(db, req)
+
+
+@router.post("/verify-email", response_model=TokenResponse)
+async def verify_email(req: VerifyEmailRequest, db: AsyncSession = Depends(get_db)):
+    """Confirm the signup email with the OTP and return the access token."""
+    return await AuthService.verify_email(db, req)
+
+
+@router.post("/resend-otp", response_model=OtpSentResponse)
+async def resend_otp(req: EmailRequest, db: AsyncSession = Depends(get_db)):
+    """Re-send the signup verification code."""
+    return await AuthService.resend_signup_otp(db, str(req.email))
 
 
 @router.post("/login", response_model=TokenResponse)
 async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
-    """Authenticate user with Gmail address or @username."""
+    """Authenticate user with email address or @username."""
     return await AuthService.authenticate_user(db, req)
+
+
+@router.post("/forgot-password", response_model=OtpSentResponse)
+async def forgot_password(req: EmailRequest, db: AsyncSession = Depends(get_db)):
+    """Email a password-reset code (always returns success — no enumeration)."""
+    return await AuthService.forgot_password(db, str(req.email))
+
+
+@router.post("/reset-password")
+async def reset_password(req: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
+    """Reset the password using the emailed code."""
+    return await AuthService.reset_password(db, req)
+
+
+@router.post("/change-password")
+async def change_password(
+    req: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Change the password for the signed-in user."""
+    return await AuthService.change_password(db, current_user, req)
+
+
+@router.put("/me")
+async def update_profile(
+    req: UpdateProfileRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the signed-in user's profile (name, origin, dialect, country)."""
+    return await AuthService.update_profile(db, current_user, req)
 
 
 @router.get("/me")
@@ -66,7 +122,17 @@ async def get_my_profile(current_user: User = Depends(get_current_user)):
         "origin_region": current_user.origin_region,
         "primary_dialect": current_user.primary_dialect,
         "f0_baseline_hz": current_user.f0_baseline_hz,
+        "email_verified": current_user.email_verified,
     }
+
+
+@router.get("/me/stats")
+async def get_my_stats(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Real learning progress (streak, words learned, XP) derived from activity."""
+    return await LearningStatsService.get_user_stats(db, current_user)
 
 
 @router.put("/me/tonal-baseline")

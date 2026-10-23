@@ -16,6 +16,15 @@ from sqlalchemy.orm import declarative_base, relationship
 Base = declarative_base()
 
 
+def _utcnow() -> datetime:
+    """Naive UTC timestamp for the DateTime (timestamp-without-tz) columns.
+
+    asyncpg (>=0.30) rejects tz-aware datetimes for naive columns, so we strip
+    tzinfo while still computing the instant in UTC.
+    """
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -28,11 +37,12 @@ class User(Base):
     origin_region = Column(String(120), nullable=False)
     primary_dialect = Column(String(100), nullable=False)
     f0_baseline_hz = Column(Float, default=138.0)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    email_verified = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=_utcnow)
     updated_at = Column(
         DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
+        default=_utcnow,
+        onupdate=_utcnow,
     )
 
     contacts = relationship("UserContact", back_populates="user", cascade="all, delete-orphan")
@@ -52,7 +62,7 @@ class UserContact(Base):
     contact_username = Column(String(40), nullable=False, index=True)
     alias_name = Column(String(120), nullable=True)
     preferred_language = Column(String(100), nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=_utcnow)
 
     user = relationship("User", back_populates="contacts")
 
@@ -71,7 +81,7 @@ class DirectMessage(Base):
     audio_url = Column(Text, nullable=True)
     audio_duration_seconds = Column(Float, nullable=True)
     is_read = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+    created_at = Column(DateTime, default=_utcnow, index=True)
 
     sender = relationship("User", foreign_keys=[sender_id], back_populates="sent_direct_messages")
 
@@ -94,7 +104,7 @@ class GlobalSpacesMessage(Base):
     duration_label = Column(String(10), nullable=True)
     sample_phrase = Column(String(120), nullable=True)
     sample_meaning = Column(String(120), nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+    created_at = Column(DateTime, default=_utcnow, index=True)
 
 
 class CallSession(Base):
@@ -106,10 +116,43 @@ class CallSession(Base):
     callee_username = Column(String(40), nullable=False, index=True)
     call_transport = Column(String(20), default="inapp")  # 'inapp' or 'telecom'
     status = Column(String(20), default="ringing")  # 'ringing', 'connected', 'ended', 'missed'
-    started_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    started_at = Column(DateTime, default=_utcnow)
     connected_at = Column(DateTime, nullable=True)
     ended_at = Column(DateTime, nullable=True)
     duration_seconds = Column(Integer, default=0)
+
+
+class EmailVerification(Base):
+    """A one-time email code for signup verification or password reset."""
+
+    __tablename__ = "email_verifications"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    email = Column(String(255), nullable=False, index=True)
+    code_hash = Column(String(128), nullable=False)
+    purpose = Column(String(20), nullable=False)  # 'signup' | 'reset'
+    attempts = Column(Integer, default=0)
+    consumed = Column(Boolean, default=False)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=_utcnow, index=True)
+
+
+class NativeToneSample(Base):
+    """A native speaker's recorded pitch contour for a target word.
+
+    The platform aggregates these into a community (crowd-sourced) tone target
+    so learners practise against real native speakers of the dialect.
+    """
+
+    __tablename__ = "native_tone_samples"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    word_id = Column(String(40), nullable=False, index=True)
+    dialect = Column(String(100), nullable=False, index=True)
+    contributor_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    semitone_contour = Column(JSON, nullable=False)
+    mean_f0_hz = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=_utcnow, index=True)
 
 
 class TonalLearningRecord(Base):
@@ -124,6 +167,6 @@ class TonalLearningRecord(Base):
     measured_f0_hz = Column(Float, nullable=False)
     semitone_contour = Column(JSON, nullable=False)
     match_score_pct = Column(Float, nullable=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=_utcnow)
 
     user = relationship("User", back_populates="tonal_records")

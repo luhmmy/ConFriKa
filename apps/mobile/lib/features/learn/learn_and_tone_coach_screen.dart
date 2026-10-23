@@ -1,7 +1,11 @@
+import 'dart:async';
+import 'dart:math' as math;
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:record/record.dart';
 
 import '../../core/network/api_client.dart';
-import '../../core/services/audio_service.dart';
 import '../../core/session.dart';
 import '../../core/theme/confrika_theme.dart';
 
@@ -14,15 +18,9 @@ class LearnAndToneCoachScreen extends StatefulWidget {
 
 class _LearnAndToneCoachScreenState extends State<LearnAndToneCoachScreen> {
   final _api = ConFriKaApiClient.instance;
-  final _audio = ConFriKaAudioService();
-
   List<dynamic> _pairs = [];
   bool _loading = true;
   String? _error;
-  String? _activeId;
-  bool _recording = false;
-  bool _analyzing = false;
-  Map<String, dynamic>? _lastResult; // calibration result for _activeId
 
   @override
   void initState() {
@@ -51,94 +49,361 @@ class _LearnAndToneCoachScreenState extends State<LearnAndToneCoachScreen> {
     }
   }
 
-  Future<void> _recordAndAnalyze(Map<String, dynamic> pair) async {
-    final id = pair['id'] as String;
-    if (_recording) {
-      // Stop and analyze.
-      setState(() {
-        _recording = false;
-        _analyzing = true;
-      });
-      final path = await _audio.stopRecording();
-      if (path == null) {
-        setState(() {
-          _analyzing = false;
-          _error = 'Recording failed.';
-        });
-        return;
-      }
-      try {
-        final baseline = ConFriKaSession.instance.f0BaselineHz;
-        final pitch = await _api.analyzePitch(path, baselineF0Hz: baseline);
-        final contour = ((pitch['semitone_contour'] as List?) ?? [])
-            .map((e) => (e as num).toDouble())
-            .toList();
-        final cal = await _api.calibrateTone(
-          targetWordId: id,
-          learnerSemitones: contour.isEmpty ? [0.0] : contour,
-          baselineF0Hz: baseline,
-        );
-        cal['_voiced_ratio'] = pitch['voiced_ratio'];
-        cal['_mean_f0'] = pitch['mean_f0_hz'];
-        if (!mounted) return;
-        setState(() {
-          _lastResult = cal;
-          _analyzing = false;
-        });
-      } on ApiException catch (e) {
-        if (!mounted) return;
-        setState(() {
-          _analyzing = false;
-          _error = e.message;
-        });
-      }
-    } else {
-      final ok = await _audio.startWavRecording();
-      if (!ok) {
-        setState(() => _error = 'Microphone permission needed to practice tones.');
-        return;
-      }
-      setState(() {
-        _recording = true;
-        _activeId = id;
-        _lastResult = null;
-        _error = null;
-      });
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (_error != null && _pairs.isEmpty) {
       return Center(
-          child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(_error!, style: const TextStyle(color: Colors.redAccent))));
-    }
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        const Text('Tonal Coach',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-        const Text('Practice tonal minimal pairs — record yourself and get a real pitch match score',
-            style: TextStyle(fontSize: 12, color: Colors.grey)),
-        const SizedBox(height: 6),
-        if (_error != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Text(_error!, style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(_error!, style: const TextStyle(color: Colors.redAccent)),
+              const SizedBox(height: 10),
+              FilledButton(onPressed: _load, child: const Text('Retry')),
+            ],
           ),
-        const SizedBox(height: 6),
-        ..._pairs.map((p) => _pairCard(p as Map<String, dynamic>)),
-      ],
+        ),
+      );
+    }
+    final native = _isNativeSpeaker;
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const Text('Tonal Coach',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+          Text(
+            native
+                ? 'You speak a tonal dialect — practise to see your pitch live, and tap '
+                    '“Teach” to add your native pronunciation so others learn from you.'
+                : 'Tap Practice and say the word. Your pitch (F0) is tracked live so you '
+                    'can see it rise and fall, with on-the-spot guidance and a match score.',
+            style: const TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+          const SizedBox(height: 12),
+          ..._pairs.map((p) => _TonePracticeCard(
+                pair: p as Map<String, dynamic>,
+                isNative: native,
+              )),
+        ],
+      ),
     );
   }
 
-  Widget _pairCard(Map<String, dynamic> p) {
-    final id = p['id'] as String;
-    final isActive = _activeId == id;
-    final targets = ((p['target_semitones'] as List?) ?? []).map((e) => (e as num).toDouble()).toList();
+  bool get _isNativeSpeaker {
+    final d = ConFriKaSession.instance.primaryDialect.toLowerCase();
+    const globals = ['english', 'français', 'francais', 'french', 'português',
+        'portuguese', 'arabic', 'العربية'];
+    return d.isNotEmpty && !globals.any((g) => d.contains(g));
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// On-device pitch tracker: autocorrelation F0 over streamed PCM16, converted to
+// semitones relative to the learner's baseline pitch.
+// ─────────────────────────────────────────────────────────────────────────────
+class _PitchTracker {
+  final double baselineHz;
+  final int sampleRate = 16000;
+  final double fmin = 70;
+  final double fmax = 350;
+  late final int _frameLen = (0.04 * sampleRate).round();
+  late final int _hop = (0.02 * sampleRate).round();
+  final List<double> _buf = [];
+
+  _PitchTracker(this.baselineHz);
+
+  /// Feed PCM16-LE bytes; return newly resolved semitone values (null = unvoiced).
+  List<double?> addBytes(Uint8List bytes) {
+    final bd = ByteData.sublistView(bytes);
+    for (var i = 0; i + 1 < bytes.length; i += 2) {
+      _buf.add(bd.getInt16(i, Endian.little) / 32768.0);
+    }
+    final out = <double?>[];
+    while (_buf.length >= _frameLen) {
+      final frame = _buf.sublist(0, _frameLen);
+      final f0 = _autocorrF0(frame);
+      out.add(f0 > 0 ? 12.0 * (math.log(f0 / baselineHz) / math.ln2) : null);
+      _buf.removeRange(0, _hop);
+    }
+    return out;
+  }
+
+  double _autocorrF0(List<double> frame) {
+    double mean = 0;
+    for (final v in frame) {
+      mean += v;
+    }
+    mean /= frame.length;
+    double energy = 0;
+    for (var i = 0; i < frame.length; i++) {
+      frame[i] -= mean;
+      energy += frame[i] * frame[i];
+    }
+    if (energy < 1e-3) return 0; // silence / unvoiced
+
+    final minLag = (sampleRate / fmax).floor();
+    var maxLag = (sampleRate / fmin).ceil();
+    if (maxLag >= frame.length) maxLag = frame.length - 1;
+    if (minLag >= maxLag) return 0;
+
+    var bestLag = -1;
+    var bestCorr = 0.0;
+    for (var lag = minLag; lag <= maxLag; lag++) {
+      var corr = 0.0;
+      for (var i = 0; i < frame.length - lag; i++) {
+        corr += frame[i] * frame[i + lag];
+      }
+      if (corr > bestCorr) {
+        bestCorr = corr;
+        bestLag = lag;
+      }
+    }
+    if (bestLag <= 0 || bestCorr < 0.3 * energy) return 0;
+    return sampleRate / bestLag;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+class _TonePracticeCard extends StatefulWidget {
+  final Map<String, dynamic> pair;
+  final bool isNative;
+  const _TonePracticeCard({required this.pair, required this.isNative});
+
+  @override
+  State<_TonePracticeCard> createState() => _TonePracticeCardState();
+}
+
+enum _Stage { idle, recording, scoring, done, error }
+
+class _TonePracticeCardState extends State<_TonePracticeCard> {
+  final _api = ConFriKaApiClient.instance;
+  final _recorder = AudioRecorder();
+
+  _Stage _stage = _Stage.idle;
+  String? _message;
+  double? _scorePct;
+  bool _acceptable = false;
+  String _liveHint = '';
+
+  StreamSubscription<Uint8List>? _sub;
+  _PitchTracker? _tracker;
+  final List<double?> _liveDisplay = []; // includes nulls (unvoiced gaps)
+  final List<double> _liveVoiced = []; // voiced only, for scoring
+  List<double> _learnerContour = const [];
+  int _sampleCount = 0;
+
+  List<double> get _targets {
+    final community = (widget.pair['community_target_semitones'] as List?);
+    final src = community ?? (widget.pair['target_semitones'] as List? ?? const []);
+    return src.map((e) => (e as num).toDouble()).toList();
+  }
+
+  int get _communityCount => (widget.pair['community_sample_count'] as num?)?.toInt() ?? 0;
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    _recorder.dispose();
+    super.dispose();
+  }
+
+  Future<void> _toggle() async {
+    if (_stage == _Stage.recording) {
+      await _stopAndScore();
+    } else {
+      await _start();
+    }
+  }
+
+  Future<void> _start() async {
+    try {
+      if (!await _recorder.hasPermission()) {
+        setState(() {
+          _stage = _Stage.error;
+          _message = 'Microphone permission is required to practise.';
+        });
+        return;
+      }
+      final baseline = ConFriKaSession.instance.f0BaselineHz;
+      _tracker = _PitchTracker(baseline);
+      _liveDisplay.clear();
+      _liveVoiced.clear();
+      _sampleCount = 0;
+
+      final stream = await _recorder.startStream(
+        const RecordConfig(
+          encoder: AudioEncoder.pcm16bits,
+          sampleRate: 16000,
+          numChannels: 1,
+        ),
+      );
+      setState(() {
+        _stage = _Stage.recording;
+        _message = 'Listening… say the word, watch your pitch, then tap Stop.';
+        _scorePct = null;
+        _learnerContour = const [];
+        _liveHint = '';
+      });
+
+      _sub = stream.listen((bytes) {
+        final semis = _tracker!.addBytes(bytes);
+        if (semis.isEmpty) return;
+        for (final s in semis) {
+          _liveDisplay.add(s);
+          if (s != null) _liveVoiced.add(s);
+          _sampleCount++;
+        }
+        _updateLiveHint();
+        if (mounted && _stage == _Stage.recording) setState(() {});
+      });
+    } catch (e) {
+      setState(() {
+        _stage = _Stage.error;
+        _message = 'Could not start recording: $e';
+      });
+    }
+  }
+
+  void _updateLiveHint() {
+    final target = _targets;
+    if (target.isEmpty) return;
+    // Find the latest voiced value.
+    double? current;
+    for (var i = _liveDisplay.length - 1; i >= 0; i--) {
+      if (_liveDisplay[i] != null) {
+        current = _liveDisplay[i];
+        break;
+      }
+    }
+    if (current == null) {
+      _liveHint = 'Speak up — no pitch detected yet';
+      return;
+    }
+    // Align elapsed speech (~0.9s nominal) to a position in the target contour.
+    final frac = (_sampleCount / 45).clamp(0.0, 1.0);
+    final idx = (frac * (target.length - 1)).round().clamp(0, target.length - 1);
+    final diff = target[idx] - current;
+    if (diff > 0.8) {
+      _liveHint = '↑ Raise your pitch';
+    } else if (diff < -0.8) {
+      _liveHint = '↓ Lower your pitch';
+    } else {
+      _liveHint = '✓ On target — hold it';
+    }
+  }
+
+  Future<void> _stopAndScore() async {
+    await _sub?.cancel();
+    _sub = null;
+    try {
+      await _recorder.stop();
+    } catch (_) {}
+
+    if (_liveVoiced.length < 3) {
+      setState(() {
+        _stage = _Stage.error;
+        _message = 'Not enough voiced sound detected. Speak a little louder and longer.';
+      });
+      return;
+    }
+    setState(() {
+      _stage = _Stage.scoring;
+      _message = 'Scoring your tone…';
+    });
+
+    final target = _targets;
+    final learner = _resample(_liveVoiced, target.isEmpty ? 6 : target.length);
+    final baseline = ConFriKaSession.instance.f0BaselineHz;
+    try {
+      final result = await _api.calibrateTone(
+        targetWordId: widget.pair['id'].toString(),
+        learnerSemitones: learner,
+        baselineF0Hz: baseline,
+      );
+      if (!mounted) return;
+      setState(() {
+        _stage = _Stage.done;
+        _scorePct = ((result['match_score_pct'] as num?) ?? 0).toDouble();
+        _acceptable = result['is_acceptable_tone'] == true;
+        _message = result['feedback']?.toString();
+        _learnerContour =
+            ((result['learner_semitones'] as List?) ?? learner).map((e) => (e as num).toDouble()).toList();
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _stage = _Stage.error;
+        _message = e.message;
+      });
+    }
+  }
+
+  Future<void> _teachAsNative() async {
+    if (_learnerContour.isEmpty) return;
+    try {
+      final res = await _api.contributeNativeTone(
+        targetWordId: widget.pair['id'].toString(),
+        nativeSemitones: _learnerContour,
+        meanF0Hz: ConFriKaSession.instance.f0BaselineHz,
+      );
+      if (!mounted) return;
+      final count = (res['community_sample_count'] as num?)?.toInt() ?? 0;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Thank you! $count native speaker(s) have taught this word.')),
+      );
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message), backgroundColor: Colors.redAccent),
+        );
+      }
+    }
+  }
+
+  List<double> _resample(List<double> xs, int n) {
+    if (xs.isEmpty || n <= 0) return const [];
+    if (xs.length == n) return xs;
+    if (xs.length == 1) return List<double>.filled(n, xs.first);
+    final out = <double>[];
+    for (var i = 0; i < n; i++) {
+      final pos = i * (xs.length - 1) / (n - 1);
+      final lo = pos.floor();
+      final hi = pos.ceil();
+      final frac = pos - lo;
+      out.add(xs[lo] * (1 - frac) + xs[hi] * frac);
+    }
+    return out;
+  }
+
+  /// Compact "when to go up/down" guidance derived from the target contour.
+  List<String> _guidanceChips() {
+    final t = _targets;
+    if (t.isEmpty) return const [];
+    String level(double v) => v < -1.2 ? 'Low' : (v > 1.2 ? 'High' : 'Mid');
+    final start = level(t.first);
+    final end = level(t.last);
+    final chips = <String>['Start $start'];
+    final delta = t.last - t.first;
+    if (delta > 1.0) {
+      chips.add('↑ rise to $end');
+    } else if (delta < -1.0) {
+      chips.add('↓ fall to $end');
+    } else {
+      chips.add('→ hold $start');
+    }
+    return chips;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final p = widget.pair;
+    final recording = _stage == _Stage.recording;
+    final scoring = _stage == _Stage.scoring;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -148,8 +413,10 @@ class _LearnAndToneCoachScreenState extends State<LearnAndToneCoachScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(p['diacritized_word']?.toString() ?? '',
-                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+                Flexible(
+                  child: Text(p['diacritized_word']?.toString() ?? '',
+                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+                ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
@@ -166,101 +433,229 @@ class _LearnAndToneCoachScreenState extends State<LearnAndToneCoachScreen> {
             ),
             Text(p['meaning']?.toString() ?? '',
                 style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
-            _ContourBar(values: targets),
             const SizedBox(height: 6),
+
+            // Guidance chips: when to go up / down.
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: [
+                for (final g in _guidanceChips())
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: ConFriKaColors.savannaGreen.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(g,
+                        style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: ConFriKaColors.savannaGreen)),
+                  ),
+                if (_communityCount > 0)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: ConFriKaColors.sunsetOrange.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text('👥 $_communityCount native target',
+                        style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                            color: ConFriKaColors.sunsetOrange)),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 10),
+
+            // Live / result pitch graph.
+            _PitchGraph(
+              target: _targets,
+              live: _liveDisplay,
+              learner: _stage == _Stage.done ? _learnerContour : const [],
+              recording: recording,
+            ),
+            if (recording && _liveHint.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Center(
+                child: Text(_liveHint,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w900,
+                      color: _liveHint.startsWith('✓')
+                          ? ConFriKaColors.savannaGreen
+                          : ConFriKaColors.oceanBlue,
+                    )),
+              ),
+            ],
+            const SizedBox(height: 8),
             Text(p['coaching_tip']?.toString() ?? '',
                 style: const TextStyle(fontSize: 12, color: Colors.grey)),
             const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: (_analyzing) ? null : () => _recordAndAnalyze(p),
-                style: FilledButton.styleFrom(
-                  backgroundColor: (isActive && _recording)
-                      ? Colors.redAccent
-                      : ConFriKaColors.savannaGreen,
+
+            Row(
+              children: [
+                FilledButton.icon(
+                  onPressed: scoring ? null : _toggle,
+                  style: FilledButton.styleFrom(
+                    backgroundColor:
+                        recording ? Colors.redAccent : ConFriKaColors.savannaGreen,
+                  ),
+                  icon: Icon(recording ? Icons.stop : Icons.mic, size: 18),
+                  label: Text(recording ? 'Stop' : 'Practice'),
                 ),
-                icon: Icon((isActive && _recording) ? Icons.stop : Icons.mic, size: 18),
-                label: Text((isActive && _recording)
-                    ? 'Stop & analyze'
-                    : (isActive && _analyzing ? 'Analyzing...' : 'Record & check pitch')),
-              ),
+                const SizedBox(width: 12),
+                if (scoring)
+                  const SizedBox(
+                      width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                if (_stage == _Stage.done && _scorePct != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: (_acceptable ? ConFriKaColors.savannaGreen : ConFriKaColors.sunsetOrange)
+                          .withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      '${_acceptable ? '✅' : '🔁'} ${_scorePct!.round()}% match',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        color: _acceptable
+                            ? ConFriKaColors.savannaGreen
+                            : ConFriKaColors.sunsetOrange,
+                      ),
+                    ),
+                  ),
+              ],
             ),
-            if (isActive && _lastResult != null) _resultPanel(_lastResult!),
+            if (widget.isNative && _stage == _Stage.done && _learnerContour.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: _teachAsNative,
+                icon: const Icon(Icons.volunteer_activism, size: 16),
+                label: const Text('Teach ConFriKa (I\'m a native speaker)'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: ConFriKaColors.sunsetOrange,
+                  side: BorderSide(color: ConFriKaColors.sunsetOrange.withValues(alpha: 0.5)),
+                ),
+              ),
+            ],
+            if (_message != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _message!,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: _stage == _Stage.error ? Colors.redAccent : Colors.grey,
+                ),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
+}
 
-  Widget _resultPanel(Map<String, dynamic> r) {
-    final score = ((r['match_score_pct'] as num?) ?? 0).toDouble();
-    final acceptable = r['is_acceptable_tone'] == true;
-    final voiced = ((r['_voiced_ratio'] as num?) ?? 0).toDouble();
+/// Draws the target tone contour and, over it, the live/final learner pitch.
+class _PitchGraph extends StatelessWidget {
+  final List<double> target;
+  final List<double?> live;
+  final List<double> learner;
+  final bool recording;
+  const _PitchGraph({
+    required this.target,
+    required this.live,
+    required this.learner,
+    required this.recording,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(top: 10),
-      padding: const EdgeInsets.all(12),
+      height: 110,
       decoration: BoxDecoration(
-        color: (acceptable ? ConFriKaColors.savannaGreen : ConFriKaColors.sunsetOrange)
-            .withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(10),
+        color: Colors.black.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(12),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Match score: ${score.toStringAsFixed(1)}%',
-              style: TextStyle(
-                  fontWeight: FontWeight.w800,
-                  color: acceptable ? ConFriKaColors.savannaGreen : ConFriKaColors.sunsetOrange)),
-          const SizedBox(height: 4),
-          Text(r['feedback']?.toString() ?? '', style: const TextStyle(fontSize: 12)),
-          if (voiced < 0.2)
-            const Padding(
-              padding: EdgeInsets.only(top: 4),
-              child: Text(
-                'Little voiced audio detected — speak clearly into the mic (emulators often have no mic input).',
-                style: TextStyle(fontSize: 11, color: Colors.grey),
-              ),
-            ),
-        ],
+      padding: const EdgeInsets.all(8),
+      child: CustomPaint(
+        painter: _PitchPainter(target: target, live: live, learner: learner),
+        child: const SizedBox.expand(),
       ),
     );
   }
 }
 
-/// Simple semitone contour visualization.
-class _ContourBar extends StatelessWidget {
-  final List<double> values;
-  const _ContourBar({required this.values});
+class _PitchPainter extends CustomPainter {
+  final List<double> target;
+  final List<double?> live;
+  final List<double> learner;
+  _PitchPainter({required this.target, required this.live, required this.learner});
+
+  static const double _min = -6; // semitones
+  static const double _max = 6;
+
+  double _y(double st, Size s) {
+    final norm = ((st - _min) / (_max - _min)).clamp(0.0, 1.0);
+    return s.height - norm * s.height;
+  }
 
   @override
-  Widget build(BuildContext context) {
-    if (values.isEmpty) return const SizedBox.shrink();
-    return SizedBox(
-      height: 40,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: values.map((v) {
-          // Map -4..+4 semitones to a bar height.
-          final norm = ((v + 4) / 8).clamp(0.0, 1.0);
-          return Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: Align(
-                alignment: Alignment.center,
-                child: Container(
-                  height: 6 + norm * 30,
-                  decoration: BoxDecoration(
-                    color: ConFriKaColors.oceanBlue,
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                ),
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
+  void paint(Canvas canvas, Size size) {
+    // Zero (baseline) gridline.
+    final grid = Paint()
+      ..color = Colors.grey.withValues(alpha: 0.35)
+      ..strokeWidth = 1;
+    final zeroY = _y(0, size);
+    canvas.drawLine(Offset(0, zeroY), Offset(size.width, zeroY), grid);
+
+    // Target contour (smooth blue line).
+    if (target.length >= 2) {
+      final paint = Paint()
+        ..color = ConFriKaColors.oceanBlue
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..strokeCap = StrokeCap.round;
+      final path = Path();
+      for (var i = 0; i < target.length; i++) {
+        final x = target.length == 1 ? 0.0 : i / (target.length - 1) * size.width;
+        final y = _y(target[i], size);
+        i == 0 ? path.moveTo(x, y) : path.lineTo(x, y);
+      }
+      canvas.drawPath(path, paint);
+    }
+
+    // Learner contour (final, orange dots + line).
+    final learnerPts = learner;
+    if (learnerPts.length >= 2) {
+      final paint = Paint()
+        ..color = ConFriKaColors.sunsetOrange
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3
+        ..strokeCap = StrokeCap.round;
+      final path = Path();
+      for (var i = 0; i < learnerPts.length; i++) {
+        final x = learnerPts.length == 1 ? 0.0 : i / (learnerPts.length - 1) * size.width;
+        final y = _y(learnerPts[i], size);
+        i == 0 ? path.moveTo(x, y) : path.lineTo(x, y);
+      }
+      canvas.drawPath(path, paint);
+    } else if (live.isNotEmpty) {
+      // Live trace while recording (orange points across time).
+      final dot = Paint()..color = ConFriKaColors.sunsetOrange;
+      final n = live.length;
+      for (var i = 0; i < n; i++) {
+        final v = live[i];
+        if (v == null) continue;
+        final x = n == 1 ? 0.0 : i / (n - 1) * size.width;
+        canvas.drawCircle(Offset(x, _y(v, size)), 2.2, dot);
+      }
+    }
   }
+
+  @override
+  bool shouldRepaint(covariant _PitchPainter old) => true;
 }

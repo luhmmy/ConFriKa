@@ -4,6 +4,8 @@ import '../../core/network/api_client.dart';
 import '../../core/session.dart';
 import '../../core/theme/confrika_theme.dart';
 import '../../core/widgets/confrika_brand_widgets.dart';
+import 'change_password_screen.dart';
+import 'edit_profile_screen.dart';
 
 class ProfileAndTrustScreen extends StatefulWidget {
   const ProfileAndTrustScreen({super.key});
@@ -107,6 +109,34 @@ class _ProfileAndTrustScreenState extends State<ProfileAndTrustScreen> {
               _row(Icons.place_outlined, 'Origin', user['origin_region']?.toString() ?? '—'),
               _row(Icons.record_voice_over_outlined, 'Dialect',
                   user['primary_dialect']?.toString() ?? '—'),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          child: Column(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.manage_accounts_outlined),
+                title: const Text('Edit profile'),
+                subtitle: const Text('Name, country, origin, dialect'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () async {
+                  await Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const EditProfileScreen(),
+                  ));
+                  if (mounted) setState(() {});
+                },
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.lock_reset),
+                title: const Text('Change password'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const ChangePasswordScreen(),
+                )),
+              ),
             ],
           ),
         ),

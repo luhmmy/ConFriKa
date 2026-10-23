@@ -12,9 +12,11 @@ class ConFriKaSession extends ChangeNotifier {
 
   static const _kToken = 'confrika_token';
   static const _kUser = 'confrika_user';
+  static const _kPrefLang = 'confrika_preferred_language';
 
   String? _token;
   Map<String, dynamic>? _user;
+  String? _preferredLanguage;
 
   bool get isAuthenticated => _token != null && _user != null;
   Map<String, dynamic>? get user => _user;
@@ -26,9 +28,24 @@ class ConFriKaSession extends ChangeNotifier {
   String get countryCode => _user?['country_code'] as String? ?? '';
   double get f0BaselineHz => ((_user?['f0_baseline_hz'] as num?) ?? 138.0).toDouble();
 
+  /// The language the user wants to read/listen to others in. Defaults to the
+  /// language they speak until they pick one in the top-bar selector.
+  String get preferredLanguage =>
+      (_preferredLanguage?.trim().isNotEmpty == true)
+          ? _preferredLanguage!
+          : primaryDialect;
+
+  Future<void> setPreferredLanguage(String language) async {
+    _preferredLanguage = language;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kPrefLang, language);
+    notifyListeners();
+  }
+
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     _token = prefs.getString(_kToken);
+    _preferredLanguage = prefs.getString(_kPrefLang);
     final userJson = prefs.getString(_kUser);
     if (userJson != null) {
       try {

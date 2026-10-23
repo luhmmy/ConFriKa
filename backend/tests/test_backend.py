@@ -197,3 +197,31 @@ def test_country_flag_emoji():
     assert country_flag("NG") == "🇳🇬"
     assert country_flag("KE") == "🇰🇪"
     assert country_flag(None) == "🌍"
+
+
+# --------------------------------------------------------------------------- #
+# Learning stats — real streak math (no fabricated numbers)
+# --------------------------------------------------------------------------- #
+def test_streak_days_logic():
+    from datetime import date, timedelta
+
+    try:
+        from backend.services.learning_stats_service import _streak_days
+    except ImportError:
+        from services.learning_stats_service import _streak_days
+
+    today = date.today()
+    # No activity -> no streak.
+    assert _streak_days([]) == 0
+    # Three consecutive days ending today -> streak of 3 (duplicates ignored).
+    assert _streak_days(
+        [today, today, today - timedelta(days=1), today - timedelta(days=2)]
+    ) == 3
+    # Most recent activity was yesterday -> streak still alive.
+    assert _streak_days([today - timedelta(days=1), today - timedelta(days=2)]) == 2
+    # A two-day gap -> streak has lapsed to 0.
+    assert _streak_days([today - timedelta(days=3)]) == 0
+    # A break in the middle -> only the recent run counts.
+    assert _streak_days(
+        [today, today - timedelta(days=1), today - timedelta(days=5)]
+    ) == 2

@@ -53,10 +53,17 @@ class _TranslateScreenState extends State<TranslateScreen> {
     super.initState();
     _languageOptions = [..._globalLanguages, ...kAll54AfricanDialects];
     _sourceLang = 'English';
-    // Default target to the signed-in user's own dialect when recognisable.
-    final mine = ConFriKaSession.instance.primaryDialect;
-    _targetLang = _languageOptions.firstWhere(
-      (o) => o == mine || o.contains(mine.split(' ').first),
+    // Default target to the language the user picked in the top-bar selector
+    // (falls back to their own dialect), kept in sync as that choice changes.
+    _targetLang = _resolveTarget(ConFriKaSession.instance.preferredLanguage);
+    ConFriKaSession.instance.addListener(_onPreferredLanguageChanged);
+  }
+
+  /// Map a free-form language name to the closest option in the picker list.
+  String _resolveTarget(String language) {
+    final first = language.split(' ').first;
+    return _languageOptions.firstWhere(
+      (o) => o == language || o.contains(first),
       orElse: () => _languageOptions.firstWhere(
         (o) => o.contains('Yorùbá'),
         orElse: () => _languageOptions[5],
@@ -64,8 +71,16 @@ class _TranslateScreenState extends State<TranslateScreen> {
     );
   }
 
+  void _onPreferredLanguageChanged() {
+    final resolved = _resolveTarget(ConFriKaSession.instance.preferredLanguage);
+    if (!mounted || resolved == _targetLang) return;
+    setState(() => _targetLang = resolved);
+    _translateNow();
+  }
+
   @override
   void dispose() {
+    ConFriKaSession.instance.removeListener(_onPreferredLanguageChanged);
     _debounce?.cancel();
     _inputController.dispose();
     super.dispose();

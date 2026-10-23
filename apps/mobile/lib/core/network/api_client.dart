@@ -110,7 +110,9 @@ class ConFriKaApiClient {
     required String originRegion,
     required String primaryDialect,
   }) async {
-    final data = await _post('/api/v1/auth/signup', {
+    // Signup now starts email verification; it returns {status, email, ...}
+    // and no token. The token is issued by verifyEmail once the OTP is entered.
+    return (await _post('/api/v1/auth/signup', {
       'email': email,
       'password': password,
       'full_name': fullName,
@@ -118,10 +120,51 @@ class ConFriKaApiClient {
       'country_code': countryCode,
       'origin_region': originRegion,
       'primary_dialect': primaryDialect,
+    })) as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> verifyEmail({
+    required String email,
+    required String code,
+  }) async {
+    final data = await _post('/api/v1/auth/verify-email', {
+      'email': email,
+      'code': code,
     }) as Map<String, dynamic>;
     setAuthToken(data['access_token'] as String?);
     return data;
   }
+
+  Future<Map<String, dynamic>> resendOtp(String email) async =>
+      (await _post('/api/v1/auth/resend-otp', {'email': email})) as Map<String, dynamic>;
+
+  Future<Map<String, dynamic>> forgotPassword(String email) async =>
+      (await _post('/api/v1/auth/forgot-password', {'email': email})) as Map<String, dynamic>;
+
+  Future<void> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) async {
+    await _post('/api/v1/auth/reset-password', {
+      'email': email,
+      'code': code,
+      'new_password': newPassword,
+    });
+  }
+
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    await _post('/api/v1/auth/change-password', {
+      'current_password': currentPassword,
+      'new_password': newPassword,
+    });
+  }
+
+  Future<Map<String, dynamic>> updateProfile(Map<String, dynamic> fields) async =>
+      (await _put('/api/v1/auth/me', fields)) as Map<String, dynamic>;
 
   Future<Map<String, dynamic>> login({
     required String emailOrUsername,
@@ -137,6 +180,10 @@ class ConFriKaApiClient {
 
   Future<Map<String, dynamic>> me() async =>
       (await _get('/api/v1/auth/me')) as Map<String, dynamic>;
+
+  /// Real learning progress (streak, words learned, XP) derived from activity.
+  Future<Map<String, dynamic>> meStats() async =>
+      (await _get('/api/v1/auth/me/stats')) as Map<String, dynamic>;
 
   Future<void> updateTonalBaseline(double f0Hz) async {
     await _put('/api/v1/auth/me/tonal-baseline', {'f0_baseline_hz': f0Hz});
@@ -249,6 +296,19 @@ class ConFriKaApiClient {
       'user_baseline_f0_hz': baselineF0Hz,
       'target_word_id': targetWordId,
       'learner_semitones': learnerSemitones,
+    })) as Map<String, dynamic>;
+  }
+
+  /// Native speakers submit a reference pronunciation the app learns from.
+  Future<Map<String, dynamic>> contributeNativeTone({
+    required String targetWordId,
+    required List<double> nativeSemitones,
+    double? meanF0Hz,
+  }) async {
+    return (await _post('/api/v1/tone-coach/contribute', {
+      'target_word_id': targetWordId,
+      'native_semitones': nativeSemitones,
+      if (meanF0Hz != null) 'mean_f0_hz': meanF0Hz,
     })) as Map<String, dynamic>;
   }
 
