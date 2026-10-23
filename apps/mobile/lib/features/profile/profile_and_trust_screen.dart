@@ -6,6 +6,7 @@ import '../../core/theme/confrika_theme.dart';
 import '../../core/widgets/confrika_brand_widgets.dart';
 import 'change_password_screen.dart';
 import 'edit_profile_screen.dart';
+import 'privacy_settings_screen.dart';
 
 class ProfileAndTrustScreen extends StatefulWidget {
   const ProfileAndTrustScreen({super.key});
@@ -124,6 +125,19 @@ class _ProfileAndTrustScreenState extends State<ProfileAndTrustScreen> {
                 onTap: () async {
                   await Navigator.of(context).push(MaterialPageRoute(
                     builder: (_) => const EditProfileScreen(),
+                  ));
+                  if (mounted) setState(() {});
+                },
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.shield_outlined),
+                title: const Text('Privacy'),
+                subtitle: const Text('Who can call or message you · images'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () async {
+                  await Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => const PrivacySettingsScreen(),
                   ));
                   if (mounted) setState(() {});
                 },

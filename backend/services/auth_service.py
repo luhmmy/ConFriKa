@@ -157,6 +157,25 @@ class UpdateProfileRequest(BaseModel):
         return code
 
 
+_PRIVACY_CHOICES = {"everyone", "contacts", "nobody"}
+
+
+class UpdatePrivacyRequest(BaseModel):
+    calls_privacy: Optional[str] = None
+    messages_privacy: Optional[str] = None
+    allow_images: Optional[bool] = None
+
+    @field_validator("calls_privacy", "messages_privacy")
+    @classmethod
+    def _choice(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        val = v.strip().lower()
+        if val not in _PRIVACY_CHOICES:
+            raise ValueError("Must be one of: everyone, contacts, nobody.")
+        return val
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -182,6 +201,9 @@ def _public_user(user: User) -> Dict[str, Any]:
         "primary_dialect": user.primary_dialect,
         "f0_baseline_hz": user.f0_baseline_hz,
         "email_verified": user.email_verified,
+        "calls_privacy": user.calls_privacy,
+        "messages_privacy": user.messages_privacy,
+        "allow_images": user.allow_images,
     }
 
 
@@ -366,6 +388,20 @@ class AuthService:
         user.password_hash = hash_password(req.new_password)
         await db.commit()
         return {"status": "password_changed"}
+
+    @staticmethod
+    async def update_privacy(
+        db: AsyncSession, user: User, req: "UpdatePrivacyRequest"
+    ) -> Dict[str, Any]:
+        if req.calls_privacy is not None:
+            user.calls_privacy = req.calls_privacy
+        if req.messages_privacy is not None:
+            user.messages_privacy = req.messages_privacy
+        if req.allow_images is not None:
+            user.allow_images = req.allow_images
+        await db.commit()
+        await db.refresh(user)
+        return _public_user(user)
 
     @staticmethod
     async def update_profile(

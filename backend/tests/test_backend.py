@@ -124,6 +124,22 @@ def test_change_password_requires_otp_code():
         )
 
 
+def test_privacy_request_validation():
+    try:
+        from backend.services.auth_service import UpdatePrivacyRequest
+    except ImportError:
+        from services.auth_service import UpdatePrivacyRequest
+
+    ok = UpdatePrivacyRequest(calls_privacy="Contacts", messages_privacy="NOBODY",
+                              allow_images=False)
+    assert ok.calls_privacy == "contacts"       # normalized lowercase
+    assert ok.messages_privacy == "nobody"
+    assert ok.allow_images is False
+    # Invalid reachability value is rejected.
+    with pytest.raises(ValueError):
+        UpdatePrivacyRequest(calls_privacy="friends-only")
+
+
 def test_password_hash_roundtrip():
     h = hash_password("StrongPass123")
     assert h != "StrongPass123"

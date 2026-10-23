@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config.settings import settings
 from ..database.models import DirectMessage, GlobalSpacesMessage, User
 from .auth_service import normalize_username
+from .privacy_service import reachability_block
 from .push_service import PushService
 from .speech_translation_service import SpeechTranslationService, TranslationRequest
 
@@ -254,6 +255,20 @@ class ChatService:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Recipient {recipient_handle} was not found.",
+            )
+
+        # Respect the recipient's reachability setting (anti-spam).
+        if current_user.id != recipient.id:
+            block = await reachability_block(
+                db, recipient, current_user.username, "message"
+            )
+            if block:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=block)
+        # Respect the recipient's image permission.
+        if req.message_type == "image" and not recipient.allow_images:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"{recipient.full_name} isn’t accepting images.",
             )
 
         target = req.target_dialect or recipient.primary_dialect

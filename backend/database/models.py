@@ -40,6 +40,10 @@ class User(Base):
     email_verified = Column(Boolean, default=False, nullable=False)
     # Base64 X25519 public key for end-to-end encrypted direct messages.
     public_key = Column(Text, nullable=True)
+    # Privacy / reachability controls: 'everyone' | 'contacts' | 'nobody'.
+    calls_privacy = Column(String(16), default="everyone", nullable=False)
+    messages_privacy = Column(String(16), default="everyone", nullable=False)
+    allow_images = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=_utcnow)
     updated_at = Column(
         DateTime,

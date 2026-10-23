@@ -16,6 +16,7 @@ from ...services.auth_service import (
     ResetPasswordRequest,
     ChangePasswordRequest,
     UpdateProfileRequest,
+    UpdatePrivacyRequest,
 )
 from ...services.learning_stats_service import LearningStatsService
 
@@ -143,6 +144,16 @@ async def register_device(
     return {"status": "registered"}
 
 
+@router.put("/me/privacy")
+async def update_privacy(
+    req: UpdatePrivacyRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update reachability controls: who can call/message me, and image permission."""
+    return await AuthService.update_privacy(db, current_user, req)
+
+
 @router.get("/me")
 async def get_my_profile(current_user: User = Depends(get_current_user)):
     """Get current authenticated user profile, dialect, and voice baseline."""
@@ -156,6 +167,9 @@ async def get_my_profile(current_user: User = Depends(get_current_user)):
         "primary_dialect": current_user.primary_dialect,
         "f0_baseline_hz": current_user.f0_baseline_hz,
         "email_verified": current_user.email_verified,
+        "calls_privacy": current_user.calls_privacy,
+        "messages_privacy": current_user.messages_privacy,
+        "allow_images": current_user.allow_images,
     }
 
 

@@ -62,6 +62,19 @@ async def init_db():
             )
             await _ensure_column(conn, "direct_messages", "ciphertext", "TEXT")
             await _ensure_column(conn, "direct_messages", "sender_pub", "TEXT")
+            # Privacy / reachability controls.
+            await _ensure_column(
+                conn, "users", "calls_privacy",
+                "VARCHAR(16) NOT NULL DEFAULT 'everyone'",
+            )
+            await _ensure_column(
+                conn, "users", "messages_privacy",
+                "VARCHAR(16) NOT NULL DEFAULT 'everyone'",
+            )
+            await _ensure_column(
+                conn, "users", "allow_images",
+                "BOOLEAN NOT NULL DEFAULT TRUE",
+            )
             # original_text may now be null (encrypted messages carry no plaintext).
             await conn.execute(
                 text("ALTER TABLE direct_messages ALTER COLUMN original_text DROP NOT NULL")

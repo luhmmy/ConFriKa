@@ -178,6 +178,19 @@ class ConFriKaApiClient {
     await _post('/api/v1/auth/me/devices', {'token': token, 'platform': platform});
   }
 
+  /// Update reachability/privacy controls. Returns the refreshed user profile.
+  Future<Map<String, dynamic>> updatePrivacy({
+    String? callsPrivacy,
+    String? messagesPrivacy,
+    bool? allowImages,
+  }) async {
+    return (await _put('/api/v1/auth/me/privacy', {
+      if (callsPrivacy != null) 'calls_privacy': callsPrivacy,
+      if (messagesPrivacy != null) 'messages_privacy': messagesPrivacy,
+      if (allowImages != null) 'allow_images': allowImages,
+    })) as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> login({
     required String emailOrUsername,
     required String password,

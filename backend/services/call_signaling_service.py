@@ -5,11 +5,14 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from fastapi import HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config.settings import settings
 from ..database.models import CallSession, User
+from .privacy_service import reachability_block
 
 
 def build_ice_servers() -> List[Dict[str, Any]]:
@@ -66,6 +69,13 @@ class CallSignalingService:
                 "message": "No-App (PSTN) calling is not available yet. Please use In-App Call.",
                 "call_transport": "telecom",
             }
+
+        # Respect the callee's reachability setting (anti-unwanted-calls).
+        callee = await db.scalar(select(User).where(User.username == callee_handle))
+        if callee is not None and callee.id != caller.id:
+            block = await reachability_block(db, callee, caller.username, "call")
+            if block:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=block)
 
         session = CallSession(
             caller_id=caller.id,
