@@ -133,8 +133,8 @@ class _DirectMessagesScreenState extends State<DirectMessagesScreen> {
           // Clear route to the SEPARATE public feed.
           OutlinedButton.icon(
             onPressed: widget.onOpenGlobalSpaces,
-            icon: const Icon(Icons.public, size: 18),
-            label: const Text('Global'),
+            icon: const Icon(Icons.groups_outlined, size: 18),
+            label: const Text('Communities'),
             style: OutlinedButton.styleFrom(
               foregroundColor: ConFriKaColors.oceanBlue,
               side: BorderSide(

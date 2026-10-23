@@ -378,6 +378,31 @@ class ConFriKaApiClient {
       (await _get('/api/v1/chat/spaces', {'channel': channel, 'country': country}))
           as List<dynamic>;
 
+  // ── Communities ───────────────────────────────────────────────────────
+  Future<List<dynamic>> communities() async =>
+      (await _get('/api/v1/communities')) as List<dynamic>;
+
+  Future<Map<String, dynamic>> createCommunity({
+    required String name,
+    String? description,
+    String icon = '🌍',
+    String category = 'general',
+  }) async =>
+      (await _post('/api/v1/communities', {
+        'name': name,
+        if (description != null) 'description': description,
+        'icon': icon,
+        'category': category,
+      })) as Map<String, dynamic>;
+
+  Future<void> joinCommunity(String slug) async {
+    await _post('/api/v1/communities/${Uri.encodeComponent(slug)}/join', {});
+  }
+
+  Future<void> leaveCommunity(String slug) async {
+    await _post('/api/v1/communities/${Uri.encodeComponent(slug)}/leave', {});
+  }
+
   Future<Map<String, dynamic>> postSpaces({
     String text = '',
     required String sourceDialect,

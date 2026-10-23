@@ -19,6 +19,11 @@ logger = logging.getLogger("confrika")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    # Seed the default communities (idempotent).
+    from .database.session import AsyncSessionLocal
+    from .services.community_service import CommunityService
+    async with AsyncSessionLocal() as db:
+        await CommunityService.ensure_defaults(db)
     if settings.TRANSLATION_WARMUP and settings.TRANSLATION_PROVIDER == "nllb":
         # Load the model in the background so startup/health isn't blocked.
         asyncio.create_task(translation_engine.warmup())

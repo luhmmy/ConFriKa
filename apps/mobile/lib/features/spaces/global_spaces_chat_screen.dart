@@ -12,7 +12,18 @@ import '../../core/theme/confrika_theme.dart';
 /// Direct Messages. Anyone can post; everything is auto-translated for readers.
 class GlobalSpacesChatScreen extends StatefulWidget {
   final ValueChanged<String> onStartCall;
-  const GlobalSpacesChatScreen({super.key, required this.onStartCall});
+  final String communitySlug;
+  final String communityName;
+  final String communityIcon;
+  final bool canPost;
+  const GlobalSpacesChatScreen({
+    super.key,
+    required this.onStartCall,
+    this.communitySlug = 'lounge',
+    this.communityName = 'ConFriKa Lounge',
+    this.communityIcon = '🌍',
+    this.canPost = true,
+  });
 
   @override
   State<GlobalSpacesChatScreen> createState() => _GlobalSpacesChatScreenState();
@@ -22,7 +33,7 @@ class _GlobalSpacesChatScreenState extends State<GlobalSpacesChatScreen> {
   final _api = ConFriKaApiClient.instance;
   final _composer = TextEditingController();
 
-  String _channel = 'all';
+  late final String _channel = widget.communitySlug;
   bool _showOriginal = false;
   bool _autoTranslate = true;
   bool _loading = true;
@@ -116,7 +127,8 @@ class _GlobalSpacesChatScreenState extends State<GlobalSpacesChatScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Global Spaces'),
+        title: Text('${widget.communityIcon}  ${widget.communityName}',
+            overflow: TextOverflow.ellipsis),
         actions: [
           if (_onlineCount != null)
             Padding(
@@ -133,21 +145,28 @@ class _GlobalSpacesChatScreenState extends State<GlobalSpacesChatScreen> {
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 2),
-            child: Text(
-              'Share voice notes & messages across Africa — auto-translated for everyone.',
-              style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor),
-            ),
-          ),
           _translateToggle(),
-          _channelPills(),
           Expanded(child: _buildList()),
-          _composerBar(),
+          if (widget.canPost)
+            _composerBar()
+          else
+            _joinPrompt(),
         ],
       ),
     );
   }
+
+  Widget _joinPrompt() => SafeArea(
+        top: false,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          color: ConFriKaColors.oceanBlue.withValues(alpha: 0.06),
+          child: Text('Join “${widget.communityName}” to post here.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Theme.of(context).hintColor)),
+        ),
+      );
 
   Widget _translateToggle() => Padding(
         padding: const EdgeInsets.fromLTRB(16, 6, 16, 2),
@@ -167,31 +186,6 @@ class _GlobalSpacesChatScreenState extends State<GlobalSpacesChatScreen> {
             selected: {_showOriginal},
             onSelectionChanged: (s) => setState(() => _showOriginal = s.first),
           ),
-        ),
-      );
-
-  Widget _channelPills() => SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        child: Row(
-          children: [
-            for (final ch in const [
-              ['all', '🌍 All'],
-              ['trade', '💼 Business & Tech'],
-              ['culture', '🎶 Culture & Music'],
-            ])
-              Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: ChoiceChip(
-                  label: Text(ch[1]),
-                  selected: _channel == ch[0],
-                  onSelected: (_) {
-                    setState(() => _channel = ch[0]);
-                    _loadSpaces();
-                  },
-                ),
-              ),
-          ],
         ),
       );
 
@@ -320,7 +314,7 @@ class _GlobalSpacesChatScreenState extends State<GlobalSpacesChatScreen> {
                     controller: _composer,
                     onSubmitted: (_) => _send(),
                     decoration: InputDecoration(
-                      hintText: 'Post to Global Spaces…',
+                      hintText: 'Post to ${widget.communityName}…',
                       isDense: true,
                       border:
                           OutlineInputBorder(borderRadius: BorderRadius.circular(16)),

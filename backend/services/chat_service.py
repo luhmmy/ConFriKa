@@ -429,6 +429,15 @@ class ChatService:
     async def post_spaces_message(
         cls, db: AsyncSession, current_user: User, req: SendSpacesRequest
     ) -> Dict[str, Any]:
+        # You can only post into a community you've joined (the default is open).
+        from .community_service import CommunityService
+        channel = req.channel_category
+        if channel and channel != "all":
+            if not await CommunityService.is_member(db, current_user, channel):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Join this community to post in it.",
+                )
         translated = None
         if req.auto_translate and req.message_type == "text" and req.original_text:
             translated = await cls._translate(req.original_text, req.source_dialect, "English")

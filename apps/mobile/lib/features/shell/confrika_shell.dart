@@ -13,7 +13,7 @@ import '../home/home_screen.dart';
 import '../learn/learn_and_tone_coach_screen.dart';
 import '../messages/direct_messages_screen.dart';
 import '../profile/profile_and_trust_screen.dart';
-import '../spaces/global_spaces_chat_screen.dart';
+import '../spaces/communities_screen.dart';
 import '../translate/translate_screen.dart';
 
 /// Quick "reading language" options for the top-bar selector.
@@ -131,11 +131,11 @@ class _ConFriKaShellState extends State<ConFriKaShell> {
     });
   }
 
-  /// Opens the public Global Spaces feed as a separate full-screen route,
-  /// keeping it cleanly distinct from the private Chats list.
+  /// Opens the Communities hub (joinable public spaces), kept cleanly distinct
+  /// from the private Chats list.
   void _openGlobalSpaces() {
     Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => GlobalSpacesChatScreen(onStartCall: _startCall),
+      builder: (_) => CommunitiesScreen(onStartCall: _startCall),
     ));
   }
 

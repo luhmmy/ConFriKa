@@ -140,6 +140,32 @@ class CallSession(Base):
     duration_seconds = Column(Integer, default=0)
 
 
+class Community(Base):
+    """A joinable community (e.g. Business & Tech). Posts in Global Spaces are
+    scoped to a community via its slug (GlobalSpacesMessage.channel_category)."""
+
+    __tablename__ = "communities"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    slug = Column(String(40), unique=True, nullable=False, index=True)
+    name = Column(String(80), nullable=False)
+    description = Column(String(240), nullable=True)
+    icon = Column(String(8), default="🌍")  # an emoji
+    category = Column(String(40), default="general")
+    is_default = Column(Boolean, default=False, nullable=False)  # everyone is a member
+    created_by = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=_utcnow)
+
+
+class CommunityMembership(Base):
+    __tablename__ = "community_memberships"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    community_slug = Column(String(40), nullable=False, index=True)
+    joined_at = Column(DateTime, default=_utcnow)
+
+
 class DeviceToken(Base):
     """A device's push token (FCM) for message & call notifications."""
 
