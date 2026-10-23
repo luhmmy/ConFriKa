@@ -54,6 +54,25 @@ translation in the speaker's own voice (~1.5–3s behind — unavoidable latency
 
 ---
 
+## iOS build (needs a Mac + Xcode + Apple Developer account)
+
+The Dart code and every package are iOS-compatible; permissions are declared in
+`ios/Runner/Info.plist` (mic, camera, photo library, Bluetooth, background audio/
+voip/remote-notification). To produce an iOS build on a Mac:
+
+1. `cd apps/mobile && flutter create --platforms=ios .` (regenerates the Xcode
+   project/Podfile if missing — keeps your `Info.plist`/`Runner` changes).
+2. Set the iOS **deployment target to 13.0+** (Firebase requires it): in Xcode,
+   Runner target → General → Minimum Deployments, or add `platform :ios, '13.0'`
+   at the top of `ios/Podfile`.
+3. Add the Firebase iOS app in the console (your iOS bundle id) and drop
+   **`GoogleService-Info.plist`** into `ios/Runner/` (add it to the target).
+4. For push: enable **Push Notifications** + **Background Modes** capabilities in
+   Xcode, and upload an **APNs key** to Firebase (Project settings → Cloud
+   Messaging → Apple app configuration).
+5. `cd ios && pod install`, then `flutter build ios` (or run from Xcode). Sign
+   with your Apple Developer team to run on a device / submit to App Store.
+
 ## Launch hardening checklist (separate from the above)
 - [ ] Rotate `SECRET_KEY`, `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `TURN_SECRET`
       in `deploy/.env` (the auto-generated dev values).

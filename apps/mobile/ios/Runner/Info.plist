@@ -37,7 +37,9 @@
 	<key>NSMicrophoneUsageDescription</key>
 	<string>ConFriKa needs microphone access to record African tonal speech, provide live dialect translation during voice calls, and evaluate pitch accuracy.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>ConFriKa uses camera for QR code invites and video communication.</string>
+	<string>ConFriKa uses the camera to take profile pictures and photos to share in chats.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>ConFriKa needs photo library access so you can choose a profile picture and send images in chats.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>ConFriKa uses Bluetooth for routing call audio through your wireless headphones and car audio systems.</string>
 
