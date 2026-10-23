@@ -8,6 +8,7 @@ from fastapi import HTTPException, status
 from jwt import PyJWTError
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config.settings import settings
@@ -281,7 +282,15 @@ class AuthService:
             email_verified=False,
         )
         db.add(new_user)
-        await db.commit()
+        try:
+            await db.commit()
+        except IntegrityError:
+            # Race: another concurrent signup took this username/email first.
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="That username or email was just registered. Please try again.",
+            )
         return await AuthService._issue_otp(db, req.email, "signup")
 
     @staticmethod

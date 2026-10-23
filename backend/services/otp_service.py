@@ -58,7 +58,7 @@ class OtpService:
     @classmethod
     async def verify(cls, db: AsyncSession, email: str, purpose: str, code: str) -> bool:
         email = email.strip().lower()
-        rec = await db.scalar(
+        stmt = (
             select(EmailVerification)
             .where(
                 (EmailVerification.email == email)
@@ -67,6 +67,11 @@ class OtpService:
             )
             .order_by(EmailVerification.created_at.desc())
         )
+        # Lock the row so concurrent verifies can't race past OTP_MAX_ATTEMPTS
+        # or double-consume a code (Postgres only; SQLite ignores it in tests).
+        if db.bind and db.bind.dialect.name == "postgresql":
+            stmt = stmt.with_for_update()
+        rec = await db.scalar(stmt)
         if rec is None:
             return False
         if rec.expires_at < _utcnow():

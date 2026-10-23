@@ -19,6 +19,7 @@ from ...services.auth_service import (
     UpdatePrivacyRequest,
 )
 from ...services.learning_stats_service import LearningStatsService
+from ...services.rate_limit import rate_limit
 
 
 class TonalBaselineRequest(BaseModel):
@@ -60,43 +61,43 @@ async def get_current_user(
     return user
 
 
-@router.post("/signup", response_model=OtpSentResponse)
+@router.post("/signup", response_model=OtpSentResponse, dependencies=[rate_limit("signup", 5, 60)])
 async def signup(req: SignUpRequest, db: AsyncSession = Depends(get_db)):
     """Begin registration: create the account and email a verification code."""
     return await AuthService.register_user(db, req)
 
 
-@router.post("/verify-email", response_model=TokenResponse)
+@router.post("/verify-email", response_model=TokenResponse, dependencies=[rate_limit("verify", 10, 60)])
 async def verify_email(req: VerifyEmailRequest, db: AsyncSession = Depends(get_db)):
     """Confirm the signup email with the OTP and return the access token."""
     return await AuthService.verify_email(db, req)
 
 
-@router.post("/resend-otp", response_model=OtpSentResponse)
+@router.post("/resend-otp", response_model=OtpSentResponse, dependencies=[rate_limit("resend", 3, 60)])
 async def resend_otp(req: EmailRequest, db: AsyncSession = Depends(get_db)):
     """Re-send the signup verification code."""
     return await AuthService.resend_signup_otp(db, str(req.email))
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=TokenResponse, dependencies=[rate_limit("login", 10, 60)])
 async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
     """Authenticate user with email address or @username."""
     return await AuthService.authenticate_user(db, req)
 
 
-@router.post("/forgot-password", response_model=OtpSentResponse)
+@router.post("/forgot-password", response_model=OtpSentResponse, dependencies=[rate_limit("forgot", 3, 60)])
 async def forgot_password(req: EmailRequest, db: AsyncSession = Depends(get_db)):
     """Email a password-reset code (always returns success — no enumeration)."""
     return await AuthService.forgot_password(db, str(req.email))
 
 
-@router.post("/reset-password")
+@router.post("/reset-password", dependencies=[rate_limit("reset", 10, 60)])
 async def reset_password(req: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
     """Reset the password using the emailed code."""
     return await AuthService.reset_password(db, req)
 
 
-@router.post("/change-password/request-otp", response_model=OtpSentResponse)
+@router.post("/change-password/request-otp", response_model=OtpSentResponse, dependencies=[rate_limit("chpw_otp", 5, 60)])
 async def request_change_password_otp(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

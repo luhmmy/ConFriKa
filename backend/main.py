@@ -35,6 +35,10 @@ app = FastAPI(
     version=settings.APP_VERSION,
     description="African speech translation, tonal coaching, messaging, and real-time calling platform.",
     lifespan=lifespan,
+    # Don't expose interactive API docs / schema in production (info disclosure).
+    docs_url=None if settings.is_production else "/docs",
+    redoc_url=None if settings.is_production else "/redoc",
+    openapi_url=None if settings.is_production else "/openapi.json",
 )
 
 # CORS. allow_credentials and a wildcard origin are mutually exclusive per spec,
