@@ -88,6 +88,35 @@ class Settings(BaseSettings):
     def fcm_configured(self) -> bool:
         return bool(self.FCM_PROJECT_ID and self.FCM_CREDENTIALS_FILE)
 
+    # ------------------------------------------------------------------ #
+    # Monetization: ads + freemium subscription (ConFriKa Pro)
+    # ------------------------------------------------------------------ #
+    # Free-tier daily/standing limits. Pro lifts all of these.
+    FREE_DAILY_TRANSLATIONS: int = 30
+    FREE_DAILY_CALL_SECONDS: int = 900        # 15 minutes of translated calls
+    FREE_MAX_COMMUNITIES: int = 2             # communities a free user may join
+    FREE_CAN_CREATE_COMMUNITIES: bool = False
+    FREE_VOICE_CLONE: bool = False            # voice-preserving calls are Pro-only
+    ADS_ENABLED: bool = True                  # show ads to free users (client reads this)
+
+    # Google Play subscription verification (Android). When a service-account
+    # JSON + package name are set, purchases are verified against the Play
+    # Developer API; otherwise /billing/verify rejects unverified tokens.
+    PLAY_PACKAGE_NAME: str = "com.confrika.confrika_mobile"
+    PLAY_SERVICE_ACCOUNT_FILE: str = ""       # path to a Play service-account JSON
+    PRO_PRODUCT_IDS: str = "confrika_pro_monthly,confrika_pro_yearly"
+    # Dev/testing escape hatch: trust the client's purchase claim without
+    # server-side verification. MUST stay False in production.
+    BILLING_TRUST_UNVERIFIED: bool = False
+
+    @property
+    def play_configured(self) -> bool:
+        return bool(self.PLAY_SERVICE_ACCOUNT_FILE and self.PLAY_PACKAGE_NAME)
+
+    @property
+    def pro_product_ids(self) -> List[str]:
+        return [p.strip() for p in (self.PRO_PRODUCT_IDS or "").split(",") if p.strip()]
+
     # WebRTC ICE / TURN (coturn REST ephemeral-credential mechanism)
     STUN_URL: str = "stun:stun.l.google.com:19302"
     TURN_HOST: str = ""  # e.g. turn.confrika.com — empty disables TURN relay

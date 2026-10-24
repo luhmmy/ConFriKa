@@ -51,6 +51,13 @@ class User(Base):
     is_banned = Column(Boolean, default=False, nullable=False)
     # Cloud voice-clone id for voice-preserving live call translation.
     voice_id = Column(String(80), nullable=True)
+    # Monetization: 'free' | 'pro'. Pro removes ads and lifts the free-tier
+    # usage/community limits. Entitlement is driven by a verified store purchase.
+    subscription_tier = Column(String(16), default="free", nullable=False)
+    subscription_platform = Column(String(16), nullable=True)  # 'google_play' | 'app_store'
+    subscription_product_id = Column(String(120), nullable=True)
+    subscription_token = Column(Text, nullable=True)  # store purchase/subscription token
+    subscription_expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=_utcnow)
     updated_at = Column(
         DateTime,

@@ -76,6 +76,15 @@ services:
       HF_HOME: /opt/confrika/models
       # Optional managed fallback for languages NLLB-200 lacks (e.g. Tiv).
       GOOGLE_TRANSLATE_API_KEY: ${GOOGLE_TRANSLATE_API_KEY:-}
+      # Monetization: ads + freemium (ConFriKa Pro via Google Play).
+      ADS_ENABLED: ${ADS_ENABLED:-true}
+      FREE_DAILY_TRANSLATIONS: ${FREE_DAILY_TRANSLATIONS:-30}
+      FREE_DAILY_CALL_SECONDS: ${FREE_DAILY_CALL_SECONDS:-900}
+      FREE_MAX_COMMUNITIES: ${FREE_MAX_COMMUNITIES:-2}
+      PLAY_PACKAGE_NAME: ${PLAY_PACKAGE_NAME:-com.confrika.confrika_mobile}
+      PLAY_SERVICE_ACCOUNT_FILE: ${PLAY_SERVICE_ACCOUNT_FILE:-}
+      PRO_PRODUCT_IDS: ${PRO_PRODUCT_IDS:-confrika_pro_monthly,confrika_pro_yearly}
+      BILLING_TRUST_UNVERIFIED: ${BILLING_TRUST_UNVERIFIED:-false}
       TURN_HOST: ${TURN_HOST:-}
       TURN_SECRET: ${TURN_SECRET:-}
     volumes:

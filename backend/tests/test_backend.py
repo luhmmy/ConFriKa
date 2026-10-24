@@ -232,6 +232,42 @@ def test_router_prefers_google_for_gap_language(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
+# Monetization: Pro entitlement + limits
+# --------------------------------------------------------------------------- #
+def test_billing_free_vs_pro_limits():
+    from datetime import datetime, timedelta, timezone
+    try:
+        from backend.services import billing_service as bs
+        from backend.database.models import User
+    except ImportError:
+        from services import billing_service as bs
+        from database.models import User
+
+    free = User(subscription_tier="free")
+    assert bs.is_pro(free) is False
+    fl = bs.limits_for(free)
+    assert fl["show_ads"] is True
+    assert fl["daily_translations"] == settings.FREE_DAILY_TRANSLATIONS
+    assert fl["can_create_communities"] is False
+
+    pro = User(
+        subscription_tier="pro",
+        subscription_expires_at=datetime.now(timezone.utc) + timedelta(days=5),
+    )
+    assert bs.is_pro(pro) is True
+    pl = bs.limits_for(pro)
+    assert pl["show_ads"] is False
+    assert pl["daily_translations"] == -1  # unlimited
+    assert pl["can_create_communities"] is True
+
+    expired = User(
+        subscription_tier="pro",
+        subscription_expires_at=datetime.now(timezone.utc) - timedelta(days=1),
+    )
+    assert bs.is_pro(expired) is False  # lapsed subscription -> free
+
+
+# --------------------------------------------------------------------------- #
 # Tone coach (real semitone math)
 # --------------------------------------------------------------------------- #
 def test_tone_coach_semitone_calculation():

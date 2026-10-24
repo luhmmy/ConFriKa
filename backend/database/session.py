@@ -93,6 +93,15 @@ async def init_db():
             await conn.execute(
                 text("ALTER TABLE direct_messages ALTER COLUMN original_text DROP NOT NULL")
             )
+            # Monetization / subscription entitlement fields.
+            await _ensure_column(
+                conn, "users", "subscription_tier",
+                "VARCHAR(16) NOT NULL DEFAULT 'free'",
+            )
+            await _ensure_column(conn, "users", "subscription_platform", "VARCHAR(16)")
+            await _ensure_column(conn, "users", "subscription_product_id", "VARCHAR(120)")
+            await _ensure_column(conn, "users", "subscription_token", "TEXT")
+            await _ensure_column(conn, "users", "subscription_expires_at", "TIMESTAMP")
 
 
 async def get_db():

@@ -12,6 +12,7 @@ from ...services.call_signaling_service import (
     build_ice_servers,
 )
 from ...services.voice_service import VoiceService
+from ...services import billing_service
 from .auth import get_current_user
 
 router = APIRouter(prefix="/calls", tags=["In-App Voice Calls & Telecom"])
@@ -34,6 +35,8 @@ async def enroll_voice(
 ):
     """Create a voice clone from a short enrollment recording so live call
     translation can speak in the user's own voice."""
+    # Voice-preserving ("speak in your own voice") is a ConFriKa Pro feature.
+    billing_service.require_pro(current_user, "Voice-preserving call translation")
     if not settings.voice_configured:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                             detail="Voice service is not configured yet.")
@@ -73,6 +76,9 @@ async def translate_utterance(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="audio_b64 is not valid base64.")
     if len(audio) > settings.VOICE_MAX_CLIP_BYTES:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Utterance clip too large.")
+    # Count translated call time against the free daily cap (Pro = unlimited).
+    # One utterance is billed a flat ~10s estimate of speaking time.
+    await billing_service.enforce(current_user, "call_seconds", amount=10)
     out = await VoiceService.translate_utterance(
         audio=audio,
         source_dialect=req.source_dialect,

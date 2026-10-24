@@ -8,6 +8,7 @@ from ...services.speech_translation_service import (
     TranslationRequest,
     TranslationResponse,
 )
+from ...services import billing_service
 from .auth import get_current_user
 
 router = APIRouter(prefix="/speech", tags=["African Speech & Translation"])
@@ -19,6 +20,7 @@ async def translate_text(
     current_user: User = Depends(get_current_user),
 ):
     """Translate text across African language pairs with real neural MT."""
+    await billing_service.enforce(current_user, "translations")
     return await SpeechTranslationService.translate_text(req)
 
 
