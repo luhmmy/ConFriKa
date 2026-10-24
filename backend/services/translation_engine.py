@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from ..config.settings import settings
+from . import google_translate_provider
 
 logger = logging.getLogger("confrika.translation")
 
@@ -151,6 +152,23 @@ _KEYWORD_TO_FLORES: list[tuple[str, str]] = [
     ("shindzuani", "swh_Latn"),
     ("shimwali", "swh_Latn"),
     ("comorian", "swh_Latn"),
+    # ----- Nigerian languages NLLB-200 does NOT cover. These resolve to an
+    # English FLORES placeholder (so same-language short-circuits still work),
+    # but the translation router sends them to a managed provider (Google) when
+    # one is configured, via _KEYWORD_TO_GOOGLE below. If no provider covers a
+    # given language, it degrades to the English fallback as before. -----
+    ("tiv", "eng_Latn"),
+    ("efik", "eng_Latn"),
+    ("ibibio", "eng_Latn"),
+    ("idoma", "eng_Latn"),
+    ("igala", "eng_Latn"),
+    ("nupe", "eng_Latn"),
+    ("edo", "eng_Latn"),
+    ("bini", "eng_Latn"),
+    ("urhobo", "eng_Latn"),
+    ("isoko", "eng_Latn"),
+    ("kalabari", "eng_Latn"),
+    ("ijaw", "eng_Latn"),
     ("nigerian pidgin", "eng_Latn"),
     ("pidgin", "eng_Latn"),
 ]
@@ -170,6 +188,77 @@ def resolve_flores_code(label: Optional[str]) -> str:
         if keyword in low:
             return code
     return DEFAULT_FLORES
+
+
+# ---------------------------------------------------------------------------
+# Managed-provider routing
+# ---------------------------------------------------------------------------
+# Keywords whose FLORES resolution above is a *lossy* fallback: NLLB-200 has no
+# dedicated model for the real dialect, so it is routed to English or a nearby
+# regional language. For these the router prefers a managed provider that does
+# cover the language, when one is configured.
+_FALLBACK_KEYWORDS: set[str] = {
+    "bamiléké", "bamileke", "duala", "ewondo", "bulu", "basaa", "banda",
+    "gbaya", "sara", "teke", "bariba", "dendi", "chokwe", "kalanga",
+    "shekgalagari", "shikomori", "shindzuani", "shimwali", "comorian",
+    "tiv", "efik", "ibibio", "idoma", "igala", "nupe", "edo", "bini",
+    "urhobo", "isoko", "kalabari", "ijaw", "nigerian pidgin", "pidgin",
+}
+
+# Keyword -> Google Cloud Translation language code. Codes follow ISO 639-1
+# where one exists, else ISO 639-3. The router only ever calls Google after
+# confirming each code against Google's live supported-languages list, so a
+# code Google does not (yet) support is simply skipped and the request falls
+# back to NLLB. Add new gap languages here as providers gain coverage.
+_KEYWORD_TO_GOOGLE: dict[str, str] = {
+    # Pivot / major languages (used when a gap language is paired with them).
+    "english": "en", "french": "fr", "français": "fr", "francais": "fr",
+    "portuguese": "pt", "português": "pt", "portugues": "pt",
+    "arabic": "ar", "afrikaans": "af",
+    "yoruba": "yo", "yorùbá": "yo", "igbo": "ig", "hausa": "ha",
+    "swahili": "sw", "kiswahili": "sw",
+    "amharic": "am", "tigrinya": "ti", "oromo": "om", "somali": "so",
+    "zulu": "zu", "isizulu": "zu", "xhosa": "xh", "isixhosa": "xh",
+    "sotho": "st", "sesotho": "st", "tswana": "tn", "setswana": "tn",
+    "northern sotho": "nso", "sepedi": "nso", "tsonga": "ts", "shona": "sn",
+    "twi": "ak", "akan": "ak", "ashanti": "ak", "ewe": "ee", "fon": "fon",
+    "bambara": "bm", "bamanankan": "bm", "wolof": "wo",
+    "lingala": "ln", "kongo": "kg", "kikongo": "kg",
+    "kinyarwanda": "rw", "rwanda": "rw", "kirundi": "rn", "rundi": "rn",
+    "luganda": "lg", "ganda": "lg", "luo": "luo", "chichewa": "ny",
+    "nyanja": "ny", "bemba": "bem", "malagasy": "mg",
+    # Nigerian gap languages NLLB-200 lacks (coverage varies by provider; the
+    # live-support check gates each one).
+    "tiv": "tiv", "efik": "efi", "ibibio": "ibb", "idoma": "idu",
+    "igala": "igl", "nupe": "nup", "edo": "bin", "bini": "bin",
+    "urhobo": "urh", "isoko": "iso", "kalabari": "ijn", "ijaw": "ijn",
+    "nigerian pidgin": "pcm", "pidgin": "pcm",
+}
+
+
+@dataclass
+class _Language:
+    """Resolved view of a free-form language label."""
+
+    flores: str
+    google: Optional[str]
+    nllb_native: bool  # False when FLORES above is a lossy fallback
+
+
+def _resolve_language(label: Optional[str]) -> _Language:
+    """Resolve a label to FLORES + managed-provider codes and NLLB coverage."""
+    if not label:
+        return _Language(DEFAULT_FLORES, _KEYWORD_TO_GOOGLE.get("english"), True)
+    low = label.strip().lower()
+    for keyword, code in _KEYWORD_TO_FLORES:
+        if keyword in low:
+            return _Language(
+                flores=code,
+                google=_KEYWORD_TO_GOOGLE.get(keyword),
+                nllb_native=keyword not in _FALLBACK_KEYWORDS,
+            )
+    # Unknown label: English placeholder (treated as NLLB-native English).
+    return _Language(DEFAULT_FLORES, _KEYWORD_TO_GOOGLE.get("english"), True)
 
 
 @dataclass
@@ -299,24 +388,59 @@ async def warmup() -> None:
 async def translate(text: str, source_label: str, target_label: str) -> EngineResult:
     """Translate ``text`` from ``source_label`` to ``target_label``.
 
-    Labels are free-form language/dialect names; they are resolved to FLORES-200
-    codes internally.
+    Labels are free-form language/dialect names. The request is routed:
+      1. NLLB-200 (local, free) handles every language it covers.
+      2. For languages NLLB cannot do (e.g. Tiv), a managed provider (Google) is
+         used when configured and when it actually covers both languages.
+      3. Otherwise the request degrades to NLLB's closest/English fallback.
     """
-    src_code = resolve_flores_code(source_label)
-    tgt_code = resolve_flores_code(target_label)
+    src = _resolve_language(source_label)
+    tgt = _resolve_language(target_label)
 
     stripped = (text or "").strip()
     if not stripped:
-        return EngineResult("", src_code, tgt_code, 0.0, "none")
+        return EngineResult("", src.flores, tgt.flores, 0.0, "none")
 
-    if src_code == tgt_code:
-        # Same language: nothing to translate.
-        return EngineResult(stripped, src_code, tgt_code, 1.0, "identity")
+    # Identity keyed on the strongest available code, so two different gap
+    # languages that share the English FLORES placeholder are NOT short-circuited.
+    src_key = src.google or src.flores
+    tgt_key = tgt.google or tgt.flores
+    if src_key == tgt_key:
+        return EngineResult(stripped, src.flores, tgt.flores, 1.0, "identity")
 
     provider = settings.TRANSLATION_PROVIDER
     if provider == "echo":
         # Development-only passthrough. Never enabled in production.
-        return EngineResult(stripped, src_code, tgt_code, 0.0, "echo")
+        return EngineResult(stripped, src.flores, tgt.flores, 0.0, "echo")
+
+    # --- Managed-provider route for languages NLLB-200 does not cover. ---
+    nllb_lossy = (not src.nllb_native) or (not tgt.nllb_native)
+    if (
+        nllb_lossy
+        and src.google
+        and tgt.google
+        and google_translate_provider.is_configured()
+    ):
+        gp = google_translate_provider.get_provider()
+        try:
+            if await gp.supports(src.google, tgt.google):
+                translated = await gp.translate(stripped, src.google, tgt.google)
+                return EngineResult(
+                    translated_text=translated,
+                    source_code=src.google,
+                    target_code=tgt.google,
+                    confidence=google_translate_provider.PROVIDER_CONFIDENCE,
+                    model=gp.model_name,
+                )
+            logger.info(
+                "Google does not cover %s->%s; falling back to NLLB",
+                src.google, tgt.google,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Google translate failed (%s->%s), falling back to NLLB: %s",
+                src.google, tgt.google, exc,
+            )
 
     engine = _get_engine()
-    return await asyncio.to_thread(engine.translate, stripped, src_code, tgt_code)
+    return await asyncio.to_thread(engine.translate, stripped, src.flores, tgt.flores)

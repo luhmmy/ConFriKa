@@ -74,6 +74,8 @@ services:
       NLLB_MODEL: ${NLLB_MODEL:-/opt/confrika/nllb-local}
       MODEL_CACHE_DIR: /opt/confrika/models
       HF_HOME: /opt/confrika/models
+      # Optional managed fallback for languages NLLB-200 lacks (e.g. Tiv).
+      GOOGLE_TRANSLATE_API_KEY: ${GOOGLE_TRANSLATE_API_KEY:-}
       TURN_HOST: ${TURN_HOST:-}
       TURN_SECRET: ${TURN_SECRET:-}
     volumes:

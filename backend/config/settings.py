@@ -57,6 +57,11 @@ class Settings(BaseSettings):
     NLLB_MAX_INPUT_TOKENS: int = 512
     MODEL_CACHE_DIR: str = "/opt/confrika/models"
     TRANSLATION_WARMUP: bool = True
+    # Optional managed fallback provider for languages NLLB-200 does not cover
+    # (e.g. Tiv). Leave blank to run fully local on NLLB only. When set, the
+    # translation router uses Google only for those gap languages; everything
+    # NLLB supports stays local and free.
+    GOOGLE_TRANSLATE_API_KEY: str = ""
 
     # Voice / Tonal pitch engine
     PITCH_ANALYSIS_MIN_F0: float = 70.0

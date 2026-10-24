@@ -15,6 +15,7 @@ try:
         normalize_username,
     )
     from backend.services import translation_engine
+    from backend.services import google_translate_provider
     from backend.services.speech_translation_service import (
         SpeechTranslationService,
         TranslationRequest,
@@ -34,6 +35,7 @@ except ImportError:  # allow running from inside backend/
         normalize_username,
     )
     from services import translation_engine
+    from services import google_translate_provider
     from services.speech_translation_service import (
         SpeechTranslationService,
         TranslationRequest,
@@ -182,6 +184,51 @@ def test_echo_provider_passthrough(monkeypatch):
     assert res.source_code == "yor_Latn"
     assert res.target_code == "eng_Latn"
     assert len(res.detected_diacritics) > 0
+
+
+# --------------------------------------------------------------------------- #
+# Translation router: NLLB vs managed provider (Google) selection
+# --------------------------------------------------------------------------- #
+def test_language_resolution_nllb_vs_gap():
+    # NLLB-native language: has a real FLORES code, no provider needed.
+    yor = translation_engine._resolve_language("Yoruba")
+    assert yor.flores == "yor_Latn" and yor.nllb_native is True
+    # Gap language NLLB lacks: English placeholder FLORES but a provider code.
+    tiv = translation_engine._resolve_language("Tiv")
+    assert tiv.flores == "eng_Latn" and tiv.nllb_native is False and tiv.google == "tiv"
+
+
+def test_router_prefers_google_for_gap_language(monkeypatch):
+    """A language NLLB cannot do is routed to the managed provider; a native
+    language stays on NLLB; an unsupported gap language degrades to NLLB."""
+    monkeypatch.setattr(settings, "TRANSLATION_PROVIDER", "nllb")
+    monkeypatch.setattr(settings, "GOOGLE_TRANSLATE_API_KEY", "TEST_KEY")
+
+    class _FakeEngine:
+        def translate(self, text, src, tgt):
+            return translation_engine.EngineResult("<nllb>", src, tgt, 0.5, "fake-nllb")
+
+    class _FakeGoogle:
+        model_name = "google-translate-v2"
+
+        async def supports(self, *codes):
+            return set(codes) <= {"en", "tiv", "yo"}
+
+        async def translate(self, text, s, t):
+            return "<google>"
+
+    monkeypatch.setattr(translation_engine, "_engine", _FakeEngine())
+    monkeypatch.setattr(google_translate_provider, "get_provider", lambda: _FakeGoogle())
+    monkeypatch.setattr(google_translate_provider, "is_configured", lambda: True)
+
+    native = asyncio.run(translation_engine.translate("Hi", "English", "Yoruba"))
+    assert native.model == "fake-nllb"  # NLLB handles what it supports
+
+    gap = asyncio.run(translation_engine.translate("Hi", "English", "Tiv"))
+    assert gap.model == "google-translate-v2"  # Tiv routed to Google
+
+    uncovered = asyncio.run(translation_engine.translate("Hi", "English", "Efik"))
+    assert uncovered.model == "fake-nllb"  # Efik unsupported by provider -> NLLB
 
 
 # --------------------------------------------------------------------------- #
