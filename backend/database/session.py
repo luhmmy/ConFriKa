@@ -84,6 +84,11 @@ async def init_db():
             await _ensure_column(conn, "users", "is_banned", "BOOLEAN NOT NULL DEFAULT FALSE")
             # Voice-clone id for live call translation.
             await _ensure_column(conn, "users", "voice_id", "VARCHAR(80)")
+            # Reply ("tag a message") fields on both message tables.
+            for tbl in ("direct_messages", "global_spaces_messages"):
+                await _ensure_column(conn, tbl, "reply_to_id", "VARCHAR(36)")
+                await _ensure_column(conn, tbl, "reply_snippet", "TEXT")
+                await _ensure_column(conn, tbl, "reply_sender", "VARCHAR(120)")
             # original_text may now be null (encrypted messages carry no plaintext).
             await conn.execute(
                 text("ALTER TABLE direct_messages ALTER COLUMN original_text DROP NOT NULL")

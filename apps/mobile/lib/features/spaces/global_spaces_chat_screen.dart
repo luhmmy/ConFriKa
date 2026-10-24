@@ -42,6 +42,7 @@ class _GlobalSpacesChatScreenState extends State<GlobalSpacesChatScreen> {
   int? _onlineCount;
 
   List<dynamic> _spaces = [];
+  Map<String, dynamic>? _replyTo;
   WebSocketChannel? _ws;
 
   @override
@@ -108,9 +109,13 @@ class _GlobalSpacesChatScreenState extends State<GlobalSpacesChatScreen> {
         text: text,
         sourceDialect: ConFriKaSession.instance.primaryDialect,
         channel: _channel,
+        replyToId: _replyTo?['id'] as String?,
+        replySnippet: _replyTo?['snippet'] as String?,
+        replySender: _replyTo?['sender'] as String?,
         autoTranslate: _autoTranslate,
       );
       _composer.clear();
+      setState(() => _replyTo = null);
       await _loadSpaces();
     } on ApiException catch (e) {
       if (mounted) {
@@ -227,15 +232,43 @@ class _GlobalSpacesChatScreenState extends State<GlobalSpacesChatScreen> {
     final dialect = m['dialect_name']?.toString() ?? '';
     final isVoice = m['message_type'] == 'voicenote';
 
+    final replySnippet = m['reply_snippet']?.toString();
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: Card(
+      child: GestureDetector(
+        onLongPress: () => _messageMenu(m, name),
+        child: Card(
         color: isMe ? ConFriKaColors.oceanBlue.withValues(alpha: 0.06) : null,
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (replySnippet != null && replySnippet.isNotEmpty) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(8),
+                  margin: const EdgeInsets.only(bottom: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.04),
+                    borderRadius: BorderRadius.circular(8),
+                    border: const Border(
+                        left: BorderSide(color: ConFriKaColors.oceanBlue, width: 3)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(m['reply_sender']?.toString() ?? '',
+                          style: const TextStyle(
+                              fontSize: 11, fontWeight: FontWeight.w700,
+                              color: ConFriKaColors.oceanBlue)),
+                      Text(replySnippet,
+                          maxLines: 2, overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ],
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -286,6 +319,45 @@ class _GlobalSpacesChatScreenState extends State<GlobalSpacesChatScreen> {
           ),
         ),
       ),
+      ),
+    );
+  }
+
+  void _messageMenu(Map<String, dynamic> m, String senderName) {
+    final username = m['sender_username']?.toString() ?? '';
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.reply),
+              title: const Text('Reply'),
+              onTap: () {
+                Navigator.pop(ctx);
+                setState(() => _replyTo = {
+                      'id': m['id'],
+                      'snippet': m['original_text']?.toString() ?? '',
+                      'sender': senderName,
+                    });
+              },
+            ),
+            if (username.isNotEmpty)
+              ListTile(
+                leading: const Icon(Icons.alternate_email),
+                title: Text('Mention $username'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  final h = username.startsWith('@') ? username : '@$username';
+                  _composer.text = '${_composer.text}$h '.trimLeft();
+                  _composer.selection = TextSelection.fromPosition(
+                      TextPosition(offset: _composer.text.length));
+                },
+              ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -296,6 +368,27 @@ class _GlobalSpacesChatScreenState extends State<GlobalSpacesChatScreen> {
         padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
         child: Column(
           children: [
+            if (_replyTo != null)
+              Container(
+                padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
+                decoration: BoxDecoration(
+                  color: ConFriKaColors.oceanBlue.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(children: [
+                  Container(width: 3, height: 28, color: ConFriKaColors.oceanBlue),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text('Replying to ${_replyTo!['sender']}: ${_replyTo!['snippet']}',
+                        maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 12)),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 18),
+                    onPressed: () => setState(() => _replyTo = null),
+                  ),
+                ]),
+              ),
             Row(
               children: [
                 Checkbox(

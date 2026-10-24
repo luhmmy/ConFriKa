@@ -93,6 +93,10 @@ class DirectMessage(Base):
     # Image/sticker media URL for non-encrypted messages (encrypted images carry
     # their URL inside the ciphertext payload instead).
     media_url = Column(Text, nullable=True)
+    # Reply ("tag a message"): the id of the quoted message + a display snapshot.
+    reply_to_id = Column(String(36), nullable=True)
+    reply_snippet = Column(Text, nullable=True)
+    reply_sender = Column(String(120), nullable=True)
     # End-to-end encryption: ciphertext (base64 nonce|ct|mac of a JSON payload
     # holding original + translated), and the sender's X25519 public key.
     is_encrypted = Column(Boolean, default=False, nullable=False)
@@ -124,6 +128,9 @@ class GlobalSpacesMessage(Base):
     source_dialect = Column(String(100), nullable=False)
     audio_url = Column(Text, nullable=True)
     media_url = Column(Text, nullable=True)  # image/sticker URL for public posts
+    reply_to_id = Column(String(36), nullable=True)
+    reply_snippet = Column(Text, nullable=True)
+    reply_sender = Column(String(120), nullable=True)
     duration_label = Column(String(10), nullable=True)
     sample_phrase = Column(String(120), nullable=True)
     sample_meaning = Column(String(120), nullable=True)

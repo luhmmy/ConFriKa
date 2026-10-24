@@ -44,6 +44,7 @@ class _DirectChatThreadScreenState extends State<DirectChatThreadScreen> {
   bool _sending = false;
   bool _showTranslation = true;
   bool _showEmoji = false;
+  Map<String, dynamic>? _replyTo; // {id, snippet, sender}
   String? _error;
   Timer? _pollTimer;
 
@@ -123,6 +124,8 @@ class _DirectChatThreadScreenState extends State<DirectChatThreadScreen> {
         m['original_text'] = payload['original'] as String? ?? '';
         m['translated_text'] = payload['translated'] as String?;
         if (payload['media_url'] != null) m['media_url'] = payload['media_url'];
+        if (payload['reply_snippet'] != null) m['reply_snippet'] = payload['reply_snippet'];
+        if (payload['reply_sender'] != null) m['reply_sender'] = payload['reply_sender'];
       } catch (_) {
         m['original_text'] = '🔒 Unable to decrypt';
       }
@@ -161,7 +164,12 @@ class _DirectChatThreadScreenState extends State<DirectChatThreadScreen> {
             translated = res['translated_text'] as String?;
           } catch (_) {/* send without translation if it fails */}
         }
-        final payload = jsonEncode({'original': text, 'translated': translated});
+        final payload = jsonEncode({
+          'original': text,
+          'translated': translated,
+          if (_replyTo != null) 'reply_snippet': _replyTo!['snippet'],
+          if (_replyTo != null) 'reply_sender': _replyTo!['sender'],
+        });
         final blob = await E2eeService.instance.encryptFor(_partnerPub!, payload);
         await _api.sendEncryptedDirectMessage(
           recipientUsername: widget.partnerUsername,
@@ -169,16 +177,21 @@ class _DirectChatThreadScreenState extends State<DirectChatThreadScreen> {
           senderPub: await E2eeService.instance.publicKey,
           sourceDialect: sourceDialect,
           targetDialect: target,
+          replyToId: _replyTo?['id'] as String?,
         );
       } else {
         await _api.sendDirectMessage(
           recipientUsername: widget.partnerUsername,
           text: text,
           sourceDialect: sourceDialect,
+          replyToId: _replyTo?['id'] as String?,
+          replySnippet: _replyTo?['snippet'] as String?,
+          replySender: _replyTo?['sender'] as String?,
           autoTranslate: _showTranslation,
         );
       }
       _composeCtrl.clear();
+      setState(() => _replyTo = null);
       await _load(initial: false);
     } on ApiException catch (e) {
       if (mounted) {
@@ -334,9 +347,12 @@ class _DirectChatThreadScreenState extends State<DirectChatThreadScreen> {
     final bg = isMe ? ConFriKaColors.oceanBlue : theme.colorScheme.surfaceContainerHighest;
     final fg = isMe ? Colors.white : theme.colorScheme.onSurface;
 
+    final replySnippet = m['reply_snippet'] as String?;
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
+      child: GestureDetector(
+        onLongPress: () => _startReply(m, isMe),
+        child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
         constraints: BoxConstraints(
@@ -354,6 +370,27 @@ class _DirectChatThreadScreenState extends State<DirectChatThreadScreen> {
           crossAxisAlignment:
               isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
+            if (replySnippet != null && replySnippet.isNotEmpty) ...[
+              Container(
+                padding: const EdgeInsets.all(7),
+                margin: const EdgeInsets.only(bottom: 5),
+                decoration: BoxDecoration(
+                  color: fg.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border(left: BorderSide(color: fg.withValues(alpha: 0.5), width: 3)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text((m['reply_sender'] as String?) ?? '',
+                        style: TextStyle(color: fg, fontSize: 11, fontWeight: FontWeight.w700)),
+                    Text(replySnippet,
+                        maxLines: 2, overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: fg.withValues(alpha: 0.75), fontSize: 12)),
+                  ],
+                ),
+              ),
+            ],
             if ((m['message_type'] == 'image' || m['message_type'] == 'sticker') &&
                 m['media_url'] != null) ...[
               ChatImage(
@@ -399,7 +436,21 @@ class _DirectChatThreadScreenState extends State<DirectChatThreadScreen> {
           ],
         ),
       ),
+      ),
     );
+  }
+
+  void _startReply(Map<String, dynamic> m, bool isMe) {
+    final snippet = (m['message_type'] == 'image')
+        ? '📷 Photo'
+        : ((m['original_text'] as String?) ?? '');
+    setState(() {
+      _replyTo = {
+        'id': m['id'],
+        'snippet': snippet,
+        'sender': isMe ? 'You' : widget.partnerName,
+      };
+    });
   }
 
   Widget _composer(ThemeData theme) {
@@ -413,6 +464,33 @@ class _DirectChatThreadScreenState extends State<DirectChatThreadScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (_replyTo != null)
+              Container(
+                padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
+                color: ConFriKaColors.oceanBlue.withValues(alpha: 0.06),
+                child: Row(children: [
+                  Container(width: 3, height: 32, color: ConFriKaColors.oceanBlue),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Replying to ${_replyTo!['sender']}',
+                            style: const TextStyle(
+                                fontSize: 11, fontWeight: FontWeight.w700,
+                                color: ConFriKaColors.oceanBlue)),
+                        Text('${_replyTo!['snippet']}',
+                            maxLines: 1, overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 12, color: theme.hintColor)),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 18),
+                    onPressed: () => setState(() => _replyTo = null),
+                  ),
+                ]),
+              ),
             Padding(
               padding: const EdgeInsets.fromLTRB(4, 6, 10, 6),
               child: Row(

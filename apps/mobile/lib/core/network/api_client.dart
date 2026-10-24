@@ -405,6 +405,7 @@ class ConFriKaApiClient {
     required String sourceDialect,
     String? targetDialect,
     String messageType = 'text',
+    String? replyToId,
   }) async {
     return (await _post('/api/v1/chat/dm', {
       'recipient_username': recipientUsername,
@@ -412,6 +413,7 @@ class ConFriKaApiClient {
       'is_encrypted': true,
       'ciphertext': ciphertext,
       'sender_pub': senderPub,
+      if (replyToId != null) 'reply_to_id': replyToId,
       'source_dialect': sourceDialect,
       if (targetDialect != null) 'target_dialect': targetDialect,
       'auto_translate': false,
@@ -425,6 +427,9 @@ class ConFriKaApiClient {
     String? targetDialect,
     String messageType = 'text',
     String? mediaUrl,
+    String? replyToId,
+    String? replySnippet,
+    String? replySender,
     bool autoTranslate = true,
   }) async {
     return (await _post('/api/v1/chat/dm', {
@@ -432,6 +437,9 @@ class ConFriKaApiClient {
       'message_type': messageType,
       if (text != null) 'original_text': text,
       if (mediaUrl != null) 'media_url': mediaUrl,
+      if (replyToId != null) 'reply_to_id': replyToId,
+      if (replySnippet != null) 'reply_snippet': replySnippet,
+      if (replySender != null) 'reply_sender': replySender,
       'source_dialect': sourceDialect,
       if (targetDialect != null) 'target_dialect': targetDialect,
       'auto_translate': autoTranslate,
@@ -478,12 +486,18 @@ class ConFriKaApiClient {
     String country = 'ALL',
     String messageType = 'text',
     String? mediaUrl,
+    String? replyToId,
+    String? replySnippet,
+    String? replySender,
     bool autoTranslate = true,
   }) async {
     return (await _post('/api/v1/chat/spaces', {
       'original_text': text,
       'message_type': messageType,
       if (mediaUrl != null) 'media_url': mediaUrl,
+      if (replyToId != null) 'reply_to_id': replyToId,
+      if (replySnippet != null) 'reply_snippet': replySnippet,
+      if (replySender != null) 'reply_sender': replySender,
       'source_dialect': sourceDialect,
       'channel_category': channel,
       'country_filter': country,

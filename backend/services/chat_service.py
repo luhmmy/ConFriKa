@@ -26,6 +26,9 @@ class SendDmRequest(BaseModel):
     target_dialect: Optional[str] = None
     audio_url: Optional[str] = None
     media_url: Optional[str] = None  # image/sticker URL (plaintext messages)
+    reply_to_id: Optional[str] = None
+    reply_snippet: Optional[str] = None
+    reply_sender: Optional[str] = None
     audio_duration_seconds: Optional[float] = None
     auto_translate: bool = True
 
@@ -39,6 +42,9 @@ class SendSpacesRequest(BaseModel):
     duration_label: Optional[str] = None
     audio_url: Optional[str] = None
     media_url: Optional[str] = None
+    reply_to_id: Optional[str] = None
+    reply_snippet: Optional[str] = None
+    reply_sender: Optional[str] = None
     auto_translate: bool = True
 
 
@@ -134,6 +140,9 @@ class ChatService:
                     "sender_pub": m.sender_pub,
                     "audio_url": m.audio_url,
                     "media_url": m.media_url,
+                    "reply_to_id": m.reply_to_id,
+                    "reply_snippet": m.reply_snippet,
+                    "reply_sender": m.reply_sender,
                     "sender_avatar": sender.avatar_url if sender else None,
                     "is_me": is_me,
                     "is_read": m.is_read,
@@ -308,6 +317,9 @@ class ChatService:
                 audio_url=req.audio_url,
                 media_url=req.media_url,
                 audio_duration_seconds=req.audio_duration_seconds,
+                reply_to_id=req.reply_to_id,
+                reply_snippet=req.reply_snippet,
+                reply_sender=req.reply_sender,
                 is_read=False,
             )
         else:
@@ -335,6 +347,9 @@ class ChatService:
                 target_dialect=target,
                 audio_url=req.audio_url,
                 audio_duration_seconds=req.audio_duration_seconds,
+                reply_to_id=req.reply_to_id,
+                reply_snippet=req.reply_snippet,
+                reply_sender=req.reply_sender,
                 is_read=False,
             )
         db.add(dm)
@@ -376,6 +391,9 @@ class ChatService:
             "sender_pub": dm.sender_pub,
             "audio_url": dm.audio_url,
             "media_url": dm.media_url,
+            "reply_to_id": dm.reply_to_id,
+            "reply_snippet": dm.reply_snippet,
+            "reply_sender": dm.reply_sender,
             "sender_avatar": current_user.avatar_url,
             "is_me": True,
             "created_at": dm.created_at.isoformat(),
@@ -420,10 +438,31 @@ class ChatService:
                 "translated_text": m.translated_text,
                 "audio_url": m.audio_url,
                 "media_url": m.media_url,
+                    "reply_to_id": m.reply_to_id,
+                    "reply_snippet": m.reply_snippet,
+                    "reply_sender": m.reply_sender,
                 "created_at": m.created_at.isoformat(),
             }
             for m in rows
         ]
+
+    @classmethod
+    async def _notify_mentions(
+        cls, db: AsyncSession, sender: User, text: str, community: str
+    ) -> None:
+        import re
+        handles = {normalize_username(h) for h in re.findall(r"@([A-Za-z0-9_]{2,40})", text)}
+        handles.discard(sender.username)
+        for handle in handles:
+            try:
+                await PushService.notify_username(
+                    db, handle,
+                    title=f"{sender.full_name} mentioned you",
+                    body=text[:120],
+                    data={"type": "mention", "from_user": sender.username, "community": community},
+                )
+            except Exception:
+                pass
 
     @classmethod
     async def post_spaces_message(
@@ -457,10 +496,16 @@ class ChatService:
             duration_label=req.duration_label,
             audio_url=req.audio_url,
             media_url=req.media_url,
+            reply_to_id=req.reply_to_id,
+            reply_snippet=req.reply_snippet,
+            reply_sender=req.reply_sender,
         )
         db.add(msg)
         await db.commit()
         await db.refresh(msg)
+
+        # Notify anyone @mentioned in the post ("tag someone").
+        await cls._notify_mentions(db, current_user, req.original_text or "", req.channel_category)
 
         return {
             "id": msg.id,
@@ -477,5 +522,8 @@ class ChatService:
             "translated_text": msg.translated_text,
             "audio_url": msg.audio_url,
             "media_url": msg.media_url,
+            "reply_to_id": msg.reply_to_id,
+            "reply_snippet": msg.reply_snippet,
+            "reply_sender": msg.reply_sender,
             "created_at": msg.created_at.isoformat(),
         }
