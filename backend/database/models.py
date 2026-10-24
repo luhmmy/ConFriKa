@@ -214,6 +214,24 @@ class NativeToneSample(Base):
     created_at = Column(DateTime, default=_utcnow, index=True)
 
 
+class CommunityToneWord(Base):
+    """A word taught by native speakers for the tonal coach. Lets any tonal
+    language (e.g. Atyap/Tyap) be supported through real speaker contributions
+    instead of fabricated tone data; the pitch target comes from NativeToneSample
+    recordings aggregated by native_tone_service."""
+
+    __tablename__ = "community_tone_words"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    word_id = Column(String(60), unique=True, nullable=False, index=True)
+    language = Column(String(60), nullable=False, index=True)
+    spelling = Column(String(80), nullable=False)
+    meaning = Column(String(120), nullable=False)
+    tone_pattern = Column(String(60), nullable=True)
+    created_by = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=_utcnow)
+
+
 class TonalLearningRecord(Base):
     __tablename__ = "tonal_learning_records"
 

@@ -1,6 +1,6 @@
-from typing import List
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,6 +8,7 @@ from ...database.models import User
 from ...database.session import get_db
 from ...services.learning_stats_service import LearningStatsService
 from ...services.native_tone_service import NativeToneService
+from ...services.community_word_service import CommunityWordService, TeachWordRequest
 from ...services.tone_coach_service import (
     ToneCoachService,
     TonalMinimalPair,
@@ -25,16 +26,28 @@ class ContributeToneRequest(BaseModel):
     mean_f0_hz: float | None = None
 
 
-@router.get("/minimal-pairs", response_model=List[TonalMinimalPair])
-async def list_minimal_pairs(
+@router.get("/languages")
+async def list_tonal_languages(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Curated tonal minimal pairs, enriched with the native-speaker community
-    target where enough speakers have contributed."""
+    """All tonal languages the coach supports (curated + community-taught),
+    including Atyap. Curated ones ship gold pairs; the rest learn from natives."""
+    counts = await CommunityWordService.counts_by_language(db)
+    return ToneCoachService.languages(counts)
+
+
+@router.get("/minimal-pairs", response_model=List[TonalMinimalPair])
+async def list_minimal_pairs(
+    language: Optional[str] = Query(None, description="Filter to one tonal language"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Tonal practice words for a language: curated gold pairs (where they exist)
+    plus community-taught words, each enriched with the native-speaker target."""
     counts = await NativeToneService.community_counts(db)
     pairs: List[TonalMinimalPair] = []
-    for p in ToneCoachService.get_minimal_pairs():
+    for p in ToneCoachService.get_minimal_pairs(language):
         community = None
         count = counts.get(p.id, 0)
         if count:
@@ -47,7 +60,22 @@ async def list_minimal_pairs(
                 }
             )
         )
+    # Append community-taught words for this language.
+    if language and language != "all":
+        for w in await CommunityWordService.list_words(db, language):
+            pairs.append(TonalMinimalPair(**w))
     return pairs
+
+
+@router.post("/teach")
+async def teach_word(
+    req: TeachWordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Native speakers add a word in any tonal language (e.g. Atyap) and record
+    its real pitch, so others can practise against genuine pronunciations."""
+    return await CommunityWordService.teach(db, current_user, req)
 
 
 @router.post("/calibrate", response_model=ToneCalibrationResponse)

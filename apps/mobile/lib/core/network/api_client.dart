@@ -424,8 +424,29 @@ class ConFriKaApiClient {
   }
 
   // ── Tone coach ──────────────────────────────────────────────────────────
-  Future<List<dynamic>> minimalPairs() async =>
-      (await _get('/api/v1/tone-coach/minimal-pairs')) as List<dynamic>;
+  Future<List<dynamic>> tonalLanguages() async =>
+      (await _get('/api/v1/tone-coach/languages')) as List<dynamic>;
+
+  Future<List<dynamic>> minimalPairs({String? language}) async =>
+      (await _get('/api/v1/tone-coach/minimal-pairs',
+          language != null ? {'language': language} : null)) as List<dynamic>;
+
+  /// Native speakers add a word in any tonal language and record its pitch.
+  Future<Map<String, dynamic>> teachToneWord({
+    required String language,
+    required String spelling,
+    required String meaning,
+    String? tonePattern,
+    required List<double> semitones,
+  }) async {
+    return (await _post('/api/v1/tone-coach/teach', {
+      'language': language,
+      'spelling': spelling,
+      'meaning': meaning,
+      if (tonePattern != null) 'tone_pattern': tonePattern,
+      'semitones': semitones,
+    })) as Map<String, dynamic>;
+  }
 
   Future<Map<String, dynamic>> calibrateTone({
     required String targetWordId,

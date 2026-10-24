@@ -5,12 +5,15 @@ from pydantic import BaseModel, Field
 
 class TonalMinimalPair(BaseModel):
     id: str
+    language: str = "Yoruba"
     base_word: str
     diacritized_word: str
     tone_pattern: str
     meaning: str
-    target_semitones: List[float]
-    coaching_tip: str
+    # Empty for community-taught words whose target comes only from recordings.
+    target_semitones: List[float] = []
+    coaching_tip: str = ""
+    source: str = "curated"  # 'curated' | 'community'
     # Crowd-sourced target averaged from native-speaker recordings (if enough).
     community_target_semitones: Optional[List[float]] = None
     community_sample_count: int = 0
@@ -65,36 +68,79 @@ class ToneCoachService:
         ),
         TonalMinimalPair(
             id="akwa-cloth",
+            language="Igbo",
             base_word="akwa",
             diacritized_word="àkwà",
             tone_pattern="Low · Low",
-            meaning="Cloth / Wrapper (Igbo)",
+            meaning="Cloth / Wrapper",
             target_semitones=[-3.2, -3.3, -3.2, -3.4, -3.5, -3.4],
             coaching_tip="Drop pitch immediately on the first syllable and maintain low pitch.",
         ),
         TonalMinimalPair(
             id="akwa-bed",
+            language="Igbo",
             base_word="akwa",
             diacritized_word="ákwà",
             tone_pattern="High · Low",
-            meaning="Bed (Igbo)",
+            meaning="Bed",
             target_semitones=[2.8, 2.9, 1.2, -1.5, -3.0, -3.2],
             coaching_tip="Start high (+2.8 ST) on the first syllable and fall sharply down to low (-3.2 ST).",
         ),
         TonalMinimalPair(
             id="akwa-egg",
+            language="Igbo",
             base_word="akwa",
             diacritized_word="àkwá",
             tone_pattern="Low · High",
-            meaning="Egg (Igbo)",
+            meaning="Egg",
             target_semitones=[-3.2, -3.0, -1.0, 1.2, 2.7, 2.9],
             coaching_tip="Start low (-3.2 ST) and rise decisively up to high tone (+2.9 ST).",
         ),
     ]
 
+    # Factual catalogue of tonal African languages the coach supports. Curated
+    # languages ship gold-standard pairs; the rest build their tone targets from
+    # native-speaker recordings (so e.g. Atyap/Tyap is supported by real speakers,
+    # not fabricated data). (name, country).
+    TONAL_LANGUAGES: List[tuple] = [
+        ("Yoruba", "Nigeria"), ("Igbo", "Nigeria"), ("Hausa", "Nigeria"),
+        ("Tiv", "Nigeria"), ("Nupe", "Nigeria"), ("Ebira", "Nigeria"),
+        ("Idoma", "Nigeria"), ("Igala", "Nigeria"), ("Atyap (Tyap)", "Nigeria"),
+        ("Berom", "Nigeria"), ("Jukun", "Nigeria"), ("Gokana", "Nigeria"),
+        ("Efik", "Nigeria"), ("Ibibio", "Nigeria"), ("Edo (Bini)", "Nigeria"),
+        ("Urhobo", "Nigeria"), ("Isoko", "Nigeria"), ("Kalabari (Ijaw)", "Nigeria"),
+        ("Twi (Akan)", "Ghana"), ("Ewe", "Ghana / Togo"), ("Ga", "Ghana"),
+        ("Dagbani", "Ghana"), ("Fon", "Benin"), ("Bariba", "Benin"),
+        ("Dyula", "Côte d'Ivoire"), ("Bambara", "Mali"), ("Mooré", "Burkina Faso"),
+        ("Luganda", "Uganda"), ("Gikuyu", "Kenya"), ("Dholuo (Luo)", "Kenya"),
+        ("Kalenjin", "Kenya"), ("Shona", "Zimbabwe"), ("Zulu", "South Africa"),
+        ("Xhosa", "South Africa"), ("Chichewa", "Malawi"), ("Bemba", "Zambia"),
+        ("Lingala", "DR Congo"), ("Kikongo", "DR Congo"), ("Kinyarwanda", "Rwanda"),
+        ("Kirundi", "Burundi"), ("Dinka", "South Sudan"), ("Nuer", "South Sudan"),
+    ]
+    CURATED_LANGUAGES = {"Yoruba", "Igbo"}
+
     @classmethod
-    def get_minimal_pairs(cls) -> List[TonalMinimalPair]:
-        return cls.MINIMAL_PAIRS
+    def get_minimal_pairs(cls, language: Optional[str] = None) -> List[TonalMinimalPair]:
+        if not language or language == "all":
+            return cls.MINIMAL_PAIRS
+        lang = language.strip().lower().split(" ")[0]
+        return [p for p in cls.MINIMAL_PAIRS if p.language.lower().startswith(lang)]
+
+    @classmethod
+    def languages(cls, community_counts: Optional[Dict[str, int]] = None) -> List[Dict[str, Any]]:
+        counts = community_counts or {}
+        out = []
+        for name, country in cls.TONAL_LANGUAGES:
+            curated = name in cls.CURATED_LANGUAGES
+            out.append({
+                "name": name,
+                "country": country,
+                "curated": curated,
+                "curated_words": len([p for p in cls.MINIMAL_PAIRS if p.language == name]),
+                "community_words": counts.get(name, 0),
+            })
+        return out
 
     @classmethod
     def get_pair(cls, word_id: str) -> TonalMinimalPair:

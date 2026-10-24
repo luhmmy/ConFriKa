@@ -19,13 +19,34 @@ class LearnAndToneCoachScreen extends StatefulWidget {
 class _LearnAndToneCoachScreenState extends State<LearnAndToneCoachScreen> {
   final _api = ConFriKaApiClient.instance;
   List<dynamic> _pairs = [];
+  List<Map<String, dynamic>> _languages = [];
+  String _language = 'Yoruba';
   bool _loading = true;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _bootstrap();
+  }
+
+  Future<void> _bootstrap() async {
+    try {
+      final langs = (await _api.tonalLanguages()).cast<Map<String, dynamic>>();
+      // Default to the user's own tonal language if it's in the catalogue.
+      final mine = ConFriKaSession.instance.primaryDialect.split(' ').first.toLowerCase();
+      final match = langs.firstWhere(
+        (l) => (l['name'] as String).toLowerCase().contains(mine) && mine.length > 2,
+        orElse: () => langs.isNotEmpty ? langs.first : {'name': 'Yoruba'},
+      );
+      if (mounted) {
+        setState(() {
+          _languages = langs;
+          _language = match['name'] as String? ?? 'Yoruba';
+        });
+      }
+    } catch (_) {}
+    await _load();
   }
 
   Future<void> _load() async {
@@ -34,7 +55,7 @@ class _LearnAndToneCoachScreenState extends State<LearnAndToneCoachScreen> {
       _error = null;
     });
     try {
-      final pairs = await _api.minimalPairs();
+      final pairs = await _api.minimalPairs(language: _language);
       if (!mounted) return;
       setState(() {
         _pairs = pairs;
@@ -83,14 +104,91 @@ class _LearnAndToneCoachScreenState extends State<LearnAndToneCoachScreen> {
                     'can see it rise and fall, with on-the-spot guidance and a match score.',
             style: const TextStyle(fontSize: 12, color: Colors.grey),
           ),
+          const SizedBox(height: 14),
+          _languagePicker(),
           const SizedBox(height: 12),
           ..._pairs.map((p) => _TonePracticeCard(
                 pair: p as Map<String, dynamic>,
                 isNative: native,
               )),
+          if (_pairs.isEmpty) _emptyState(native),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: () => _openTeachSheet(),
+            icon: const Icon(Icons.add),
+            label: Text('Teach a word in $_language'),
+          ),
         ],
       ),
     );
+  }
+
+  Widget _languagePicker() {
+    final names = _languages.isEmpty
+        ? [_language]
+        : _languages.map((l) => l['name'] as String).toList();
+    if (!names.contains(_language)) names.insert(0, _language);
+    return InputDecorator(
+      decoration: const InputDecoration(
+        labelText: 'Language',
+        prefixIcon: Icon(Icons.record_voice_over_outlined),
+        border: OutlineInputBorder(),
+        isDense: true,
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: _language,
+          isExpanded: true,
+          items: names
+              .map((n) => DropdownMenuItem(value: n, child: Text(n)))
+              .toList(),
+          onChanged: (v) {
+            if (v == null || v == _language) return;
+            setState(() => _language = v);
+            _load();
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _emptyState(bool native) {
+    final cur = _languages.firstWhere(
+      (l) => l['name'] == _language,
+      orElse: () => {'curated': false},
+    );
+    final curated = cur['curated'] == true;
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        children: [
+          Icon(Icons.graphic_eq, size: 36, color: Theme.of(context).hintColor),
+          const SizedBox(height: 10),
+          Text(
+            curated
+                ? 'No words loaded for $_language yet.'
+                : '$_language has no community words yet. Native speakers teach the '
+                    'tones here, pitch by pitch, so learners can practise against real '
+                    'pronunciations. Be the first to teach $_language.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.grey, fontSize: 13),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openTeachSheet() async {
+    final taught = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _TeachWordSheet(language: _language),
+    );
+    if (taught == true) _load();
   }
 
   bool get _isNativeSpeaker {
@@ -658,4 +756,169 @@ class _PitchPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _PitchPainter old) => true;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Teach a new word in any tonal language: enter the word, record your native
+// pitch, and contribute it so others can practise against a real pronunciation.
+// ─────────────────────────────────────────────────────────────────────────────
+class _TeachWordSheet extends StatefulWidget {
+  final String language;
+  const _TeachWordSheet({required this.language});
+
+  @override
+  State<_TeachWordSheet> createState() => _TeachWordSheetState();
+}
+
+class _TeachWordSheetState extends State<_TeachWordSheet> {
+  final _api = ConFriKaApiClient.instance;
+  final _recorder = AudioRecorder();
+  final _spelling = TextEditingController();
+  final _meaning = TextEditingController();
+  final _tone = TextEditingController();
+
+  StreamSubscription<Uint8List>? _sub;
+  _PitchTracker? _tracker;
+  final List<double> _voiced = [];
+  bool _recording = false;
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    _recorder.dispose();
+    _spelling.dispose();
+    _meaning.dispose();
+    _tone.dispose();
+    super.dispose();
+  }
+
+  Future<void> _toggleRecord() async {
+    if (_recording) {
+      await _sub?.cancel();
+      await _recorder.stop();
+      setState(() => _recording = false);
+      return;
+    }
+    if (!await _recorder.hasPermission()) {
+      setState(() => _error = 'Microphone permission is required.');
+      return;
+    }
+    _voiced.clear();
+    _tracker = _PitchTracker(ConFriKaSession.instance.f0BaselineHz);
+    final stream = await _recorder.startStream(const RecordConfig(
+        encoder: AudioEncoder.pcm16bits, sampleRate: 16000, numChannels: 1));
+    setState(() {
+      _recording = true;
+      _error = null;
+    });
+    _sub = stream.listen((bytes) {
+      for (final s in _tracker!.addBytes(bytes)) {
+        if (s != null) _voiced.add(s);
+      }
+      if (mounted) setState(() {});
+    });
+  }
+
+  Future<void> _submit() async {
+    if (_spelling.text.trim().isEmpty || _meaning.text.trim().isEmpty) {
+      setState(() => _error = 'Enter the word and its meaning.');
+      return;
+    }
+    if (_voiced.length < 3) {
+      setState(() => _error = 'Record the word first (speak clearly).');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await _api.teachToneWord(
+        language: widget.language,
+        spelling: _spelling.text.trim(),
+        meaning: _meaning.text.trim(),
+        tonePattern: _tone.text.trim().isEmpty ? null : _tone.text.trim(),
+        semitones: _voiced,
+      );
+      if (mounted) Navigator.of(context).pop(true);
+    } on ApiException catch (e) {
+      setState(() {
+        _saving = false;
+        _error = e.message;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 18, right: 18, top: 18,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 18,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('Teach a word in ${widget.language}',
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 4),
+          const Text('Native speakers record real pitch so others can learn it.',
+              style: TextStyle(fontSize: 12, color: Colors.grey)),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _spelling,
+            decoration: const InputDecoration(
+                labelText: 'Word (with tone marks if any)',
+                border: OutlineInputBorder(), isDense: true),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _meaning,
+            decoration: const InputDecoration(
+                labelText: 'Meaning', border: OutlineInputBorder(), isDense: true),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _tone,
+            decoration: const InputDecoration(
+                labelText: 'Tone pattern (optional, e.g. Mid · High)',
+                border: OutlineInputBorder(), isDense: true),
+          ),
+          const SizedBox(height: 14),
+          FilledButton.icon(
+            onPressed: _toggleRecord,
+            style: FilledButton.styleFrom(
+              backgroundColor:
+                  _recording ? Colors.redAccent : ConFriKaColors.savannaGreen,
+            ),
+            icon: Icon(_recording ? Icons.stop : Icons.mic),
+            label: Text(_recording
+                ? 'Stop (${_voiced.length} pitch points)'
+                : (_voiced.isEmpty ? 'Record pronunciation' : 'Re-record')),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 10),
+            Text(_error!,
+                style: const TextStyle(color: Colors.redAccent, fontSize: 13)),
+          ],
+          const SizedBox(height: 14),
+          FilledButton(
+            onPressed: _saving ? null : _submit,
+            style: FilledButton.styleFrom(
+                backgroundColor: ConFriKaColors.oceanBlue,
+                padding: const EdgeInsets.symmetric(vertical: 14)),
+            child: _saving
+                ? const SizedBox(
+                    width: 18, height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Text('Teach this word',
+                    style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
 }
