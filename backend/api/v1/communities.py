@@ -44,3 +44,13 @@ async def leave_community(
     db: AsyncSession = Depends(get_db),
 ):
     return await CommunityService.leave(db, current_user, slug)
+
+
+@router.delete("/{slug}")
+async def delete_community(
+    slug: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a community you created (not the default one)."""
+    return await CommunityService.delete_community(db, current_user, slug)

@@ -62,6 +62,10 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
   String _targetLang = 'English';
   String? _caption;
 
+  String? _sessionId;
+  bool _wasConnected = false;
+  bool _outcomeSent = false;
+
   Timer? _tick;
   Duration _elapsed = Duration.zero;
 
@@ -143,6 +147,7 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
     _rtc.onConnectionStateChanged = (s) {
       if (!mounted) return;
       if (s == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+        _wasConnected = true;
         setState(() => _phase = CallPhase.connected);
         _startTimer();
       } else if (s == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
@@ -156,6 +161,7 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
     if (!await _ensureMic()) return;
     try {
       final session = await _api.initiateCall(_peer);
+      _sessionId = session['session_id'] as String?;
       if (session['status'] == 'coming_soon') {
         setState(() {
           _phase = CallPhase.failed;
@@ -251,6 +257,14 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
 
   void _finish(String _) {
     _tick?.cancel();
+    // Record the outcome for call history (outgoing calls carry the session id).
+    if (_sessionId != null && !_outcomeSent) {
+      _outcomeSent = true;
+      _api
+          .recordCallOutcome(_sessionId!,
+              connected: _wasConnected, durationSeconds: _elapsed.inSeconds)
+          .catchError((_) {});
+    }
     _cleanup();
     if (mounted) {
       setState(() => _phase = CallPhase.ended);

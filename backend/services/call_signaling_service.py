@@ -130,3 +130,50 @@ class CallSignalingService:
             "session_id": session_id,
             "status": "ended",
         }
+
+    @classmethod
+    async def record_outcome(
+        cls, db: AsyncSession, session_id: str, connected: bool, duration_seconds: int
+    ) -> Dict[str, Any]:
+        """Persist how a call ended so it shows in call history / missed calls."""
+        cls.ACTIVE_SESSIONS.pop(session_id, None)
+        session = await db.get(CallSession, session_id)
+        if session is not None:
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            session.status = "ended" if connected else "missed"
+            session.ended_at = now
+            session.duration_seconds = max(0, int(duration_seconds))
+            if connected and session.connected_at is None:
+                session.connected_at = now
+            await db.commit()
+        return {"status": "recorded"}
+
+    @classmethod
+    async def history(cls, db: AsyncSession, user: User, limit: int = 50) -> List[Dict[str, Any]]:
+        from sqlalchemy import or_, select
+        rows = (
+            await db.scalars(
+                select(CallSession)
+                .where(or_(
+                    CallSession.caller_username == user.username,
+                    CallSession.callee_username == user.username,
+                ))
+                .order_by(CallSession.started_at.desc())
+                .limit(limit)
+            )
+        ).all()
+        out = []
+        for s in rows:
+            outgoing = s.caller_username == user.username
+            other = s.callee_username if outgoing else s.caller_username
+            missed = (not outgoing) and s.status in ("ringing", "missed")
+            out.append({
+                "session_id": s.id,
+                "other_username": other,
+                "direction": "outgoing" if outgoing else "incoming",
+                "status": s.status,
+                "missed": missed,
+                "duration_seconds": s.duration_seconds or 0,
+                "started_at": s.started_at.isoformat() if s.started_at else None,
+            })
+        return out

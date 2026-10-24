@@ -44,6 +44,34 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
     }
   }
 
+  Future<void> _deleteCommunity(Map<String, dynamic> c) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete “${c['name']}”?'),
+        content: const Text(
+            'This removes the community and all its posts. This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await _api.deleteCommunity(c['slug'] as String);
+      _load();
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    }
+  }
+
   Future<void> _toggleJoin(Map<String, dynamic> c) async {
     final slug = c['slug'] as String;
     final joined = c['joined'] == true;
@@ -187,13 +215,17 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
               style: TextStyle(fontSize: 11, color: theme.hintColor)),
         ],
       ),
-      trailing: isDefault
-          ? Chip(
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isDefault)
+            Chip(
               label: const Text('Default', style: TextStyle(fontSize: 11)),
               backgroundColor: ConFriKaColors.savannaGreen.withValues(alpha: 0.15),
               side: BorderSide.none,
             )
-          : OutlinedButton(
+          else
+            OutlinedButton(
               onPressed: () => _toggleJoin(c),
               style: OutlinedButton.styleFrom(
                 foregroundColor:
@@ -205,6 +237,14 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
               ),
               child: Text(joined ? 'Joined' : 'Join'),
             ),
+          if (c['is_owner'] == true)
+            IconButton(
+              tooltip: 'Delete community',
+              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+              onPressed: () => _deleteCommunity(c),
+            ),
+        ],
+      ),
       onTap: () => _open(c),
     );
   }

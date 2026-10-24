@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../core/network/api_client.dart';
 import '../../core/theme/confrika_theme.dart';
+import '../../core/widgets/user_avatar.dart';
 import 'active_call_screen.dart';
 
 /// The Calls tab: a simple dialer. Placing a call opens the full-screen
@@ -15,18 +17,28 @@ class ConnectCallScreen extends StatefulWidget {
 
 class _ConnectCallScreenState extends State<ConnectCallScreen> {
   final _calleeCtrl = TextEditingController();
+  final _api = ConFriKaApiClient.instance;
   String? _error;
+  List<Map<String, dynamic>> _history = [];
 
   @override
   void initState() {
     super.initState();
     if (widget.initialCallee != null) _calleeCtrl.text = widget.initialCallee!;
+    _loadHistory();
   }
 
   @override
   void dispose() {
     _calleeCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadHistory() async {
+    try {
+      final rows = await _api.callHistory();
+      if (mounted) setState(() => _history = rows.cast<Map<String, dynamic>>());
+    } catch (_) {}
   }
 
   void _call() {
@@ -36,11 +48,15 @@ class _ConnectCallScreenState extends State<ConnectCallScreen> {
       return;
     }
     setState(() => _error = null);
-    final handle = callee.startsWith('@') ? callee : '@$callee';
-    Navigator.of(context).push(MaterialPageRoute(
+    _callUser(callee.startsWith('@') ? callee : '@$callee');
+  }
+
+  Future<void> _callUser(String handle) async {
+    await Navigator.of(context).push(MaterialPageRoute(
       fullscreenDialog: true,
       builder: (_) => ActiveCallScreen(calleeUsername: handle),
     ));
+    _loadHistory(); // refresh after the call ends
   }
 
   @override
@@ -99,7 +115,14 @@ class _ConnectCallScreenState extends State<ConnectCallScreen> {
             ),
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 18),
+        if (_history.isNotEmpty) ...[
+          const Text('Recent calls',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800)),
+          const SizedBox(height: 4),
+          ..._history.map(_historyTile),
+          const SizedBox(height: 12),
+        ],
         Card(
           color: ConFriKaColors.oceanBlue.withValues(alpha: 0.05),
           child: const Padding(
@@ -124,5 +147,55 @@ class _ConnectCallScreenState extends State<ConnectCallScreen> {
         ),
       ],
     );
+  }
+
+  Widget _historyTile(Map<String, dynamic> h) {
+    final name = (h['other_username'] as String?)?.replaceFirst('@', '') ?? '';
+    final missed = h['missed'] == true;
+    final outgoing = h['direction'] == 'outgoing';
+    final dur = (h['duration_seconds'] as num?)?.toInt() ?? 0;
+    final icon = missed
+        ? Icons.call_missed
+        : (outgoing ? Icons.call_made : Icons.call_received);
+    final color = missed
+        ? Colors.redAccent
+        : (outgoing ? ConFriKaColors.oceanBlue : ConFriKaColors.savannaGreen);
+    final sub = missed
+        ? 'Missed'
+        : (outgoing ? 'Outgoing' : 'Incoming') +
+            (dur > 0 ? ' · ${dur ~/ 60}:${(dur % 60).toString().padLeft(2, '0')}' : '');
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: UserAvatar(name: name, radius: 20),
+      title: Text('@$name',
+          style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: missed ? Colors.redAccent : null)),
+      subtitle: Row(children: [
+        Icon(icon, size: 14, color: color),
+        const SizedBox(width: 4),
+        Text(sub, style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor)),
+        const Spacer(),
+        Text(_time(h['started_at'] as String?),
+            style: TextStyle(fontSize: 11, color: Theme.of(context).hintColor)),
+      ]),
+      trailing: IconButton(
+        icon: const Icon(Icons.phone, color: ConFriKaColors.savannaGreen),
+        onPressed: () => _callUser('@$name'),
+      ),
+    );
+  }
+
+  static String _time(String? iso) {
+    if (iso == null) return '';
+    final dt = DateTime.tryParse(iso)?.toLocal();
+    if (dt == null) return '';
+    final now = DateTime.now();
+    final sameDay = dt.year == now.year && dt.month == now.month && dt.day == now.day;
+    if (sameDay) {
+      final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+      return '$h:${dt.minute.toString().padLeft(2, '0')} ${dt.hour < 12 ? 'AM' : 'PM'}';
+    }
+    return '${dt.day}/${dt.month}';
   }
 }

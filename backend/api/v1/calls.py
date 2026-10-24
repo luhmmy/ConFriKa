@@ -104,6 +104,33 @@ async def initiate_call(
     return await CallSignalingService.initiate_call(db, current_user, req)
 
 
+@router.get("/history")
+async def call_history(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Recent calls involving the user (incoming/outgoing, with missed flags)."""
+    return await CallSignalingService.history(db, current_user)
+
+
+class CallOutcomeRequest(BaseModel):
+    connected: bool = False
+    duration_seconds: int = 0
+
+
+@router.post("/{session_id}/outcome")
+async def record_call_outcome(
+    session_id: str,
+    req: CallOutcomeRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Record how a call ended so it appears in call history."""
+    return await CallSignalingService.record_outcome(
+        db, session_id, req.connected, req.duration_seconds
+    )
+
+
 @router.post("/{session_id}/answer")
 async def answer_call(
     session_id: str,

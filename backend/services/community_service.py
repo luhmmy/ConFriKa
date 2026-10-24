@@ -98,8 +98,29 @@ class CommunityService:
                 "is_default": c.is_default,
                 "joined": c.is_default or c.slug in my,
                 "member_count": await cls._member_count(db, c),
+                "is_owner": c.created_by == user.id,
             })
         return out
+
+    @classmethod
+    async def delete_community(
+        cls, db: AsyncSession, user: User, slug: str
+    ) -> Dict[str, Any]:
+        community = await db.scalar(select(Community).where(Community.slug == slug))
+        if community is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Community not found.")
+        if community.is_default:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The default community can't be deleted.")
+        if community.created_by != user.id and not user.is_admin:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the creator can delete this community.")
+        # Remove memberships and posts in the community, then the community.
+        from ..database.models import CommunityMembership, GlobalSpacesMessage
+        from sqlalchemy import delete as sa_delete
+        await db.execute(sa_delete(CommunityMembership).where(CommunityMembership.community_slug == slug))
+        await db.execute(sa_delete(GlobalSpacesMessage).where(GlobalSpacesMessage.channel_category == slug))
+        await db.delete(community)
+        await db.commit()
+        return {"status": "deleted", "slug": slug}
 
     @classmethod
     async def create_community(

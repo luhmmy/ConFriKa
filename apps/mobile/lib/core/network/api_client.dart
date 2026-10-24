@@ -96,6 +96,22 @@ class ConFriKaApiClient {
     }
   }
 
+  Future<dynamic> _delete(String path) async {
+    try {
+      final res = await http
+          .delete(_uri(path), headers: _headers)
+          .timeout(const Duration(seconds: 20));
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        return res.body.isEmpty ? null : jsonDecode(res.body);
+      }
+      _fail(res);
+    } on ApiException {
+      rethrow;
+    } catch (e) {
+      throw ApiException(0, 'Network error: $e');
+    }
+  }
+
   // ── Health ────────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> health() async =>
       (await _get('/health')) as Map<String, dynamic>;
@@ -233,6 +249,18 @@ class ConFriKaApiClient {
       'respect_tones': true,
       'formality': formality,
     })) as Map<String, dynamic>;
+  }
+
+  // ── Call history ──────────────────────────────────────────────────────
+  Future<List<dynamic>> callHistory() async =>
+      (await _get('/api/v1/calls/history')) as List<dynamic>;
+
+  Future<void> recordCallOutcome(
+      String sessionId, {required bool connected, int durationSeconds = 0}) async {
+    await _post('/api/v1/calls/${Uri.encodeComponent(sessionId)}/outcome', {
+      'connected': connected,
+      'duration_seconds': durationSeconds,
+    });
   }
 
   // ── Live call translation (voice) ─────────────────────────────────────
@@ -437,6 +465,10 @@ class ConFriKaApiClient {
 
   Future<void> leaveCommunity(String slug) async {
     await _post('/api/v1/communities/${Uri.encodeComponent(slug)}/leave', {});
+  }
+
+  Future<void> deleteCommunity(String slug) async {
+    await _delete('/api/v1/communities/${Uri.encodeComponent(slug)}');
   }
 
   Future<Map<String, dynamic>> postSpaces({
