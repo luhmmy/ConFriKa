@@ -49,6 +49,8 @@ class User(Base):
     # Admin / moderation.
     is_admin = Column(Boolean, default=False, nullable=False)
     is_banned = Column(Boolean, default=False, nullable=False)
+    # Cloud voice-clone id for voice-preserving live call translation.
+    voice_id = Column(String(80), nullable=True)
     created_at = Column(DateTime, default=_utcnow)
     updated_at = Column(
         DateTime,

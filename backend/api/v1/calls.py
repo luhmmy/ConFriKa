@@ -1,6 +1,6 @@
 import base64
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from ...config.settings import settings
@@ -15,6 +15,41 @@ from ...services.voice_service import VoiceService
 from .auth import get_current_user
 
 router = APIRouter(prefix="/calls", tags=["In-App Voice Calls & Telecom"])
+
+
+@router.get("/voice/status")
+async def voice_status(current_user: User = Depends(get_current_user)):
+    """Whether this user has enrolled a translation voice, and if the service is on."""
+    return {
+        "enrolled": bool(current_user.voice_id),
+        "voice_service_configured": settings.voice_configured,
+    }
+
+
+@router.post("/voice/enroll")
+async def enroll_voice(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a voice clone from a short enrollment recording so live call
+    translation can speak in the user's own voice."""
+    if not settings.voice_configured:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            detail="Voice service is not configured yet.")
+    audio = await file.read()
+    if len(audio) > settings.VOICE_MAX_CLIP_BYTES * 4:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                            detail="Recording too large.")
+    voice_id = await VoiceService.create_voice_clone(
+        name=f"confrika_{current_user.username.lstrip('@')}", audio=audio
+    )
+    if not voice_id:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY,
+                            detail="Could not create the voice. Try a clearer, longer sample.")
+    current_user.voice_id = voice_id
+    await db.commit()
+    return {"status": "enrolled", "voice_id": voice_id}
 
 
 class TranslateUtteranceRequest(BaseModel):
@@ -42,7 +77,7 @@ async def translate_utterance(
         audio=audio,
         source_dialect=req.source_dialect,
         target_dialect=req.target_dialect,
-        voice_id=req.voice_id,
+        voice_id=req.voice_id or current_user.voice_id,
     )
     return {
         "source_text": out.source_text,

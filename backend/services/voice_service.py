@@ -91,6 +91,37 @@ class VoiceService:
         logger.error("TTS failed (%s): %s", status, raw[:200])
         return None
 
+    # ── Instant voice cloning (enrollment) ────────────────────────────────
+    @staticmethod
+    def _create_clone_sync(name: str, audio: bytes) -> Optional[str]:
+        key = settings.VOICE_API_KEY.strip()
+        boundary = "----confrikaClone"
+        pre = (
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"name\"\r\n\r\n{name}\r\n"
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"files\"; "
+            "filename=\"enroll.wav\"\r\nContent-Type: audio/wav\r\n\r\n"
+        )
+        body = pre.encode() + audio + f"\r\n--{boundary}--\r\n".encode()
+        status_code, raw = _http(
+            "POST",
+            f"{_ELEVEN_BASE}/voices/add",
+            headers={"xi-api-key": key, "Content-Type": f"multipart/form-data; boundary={boundary}"},
+            data=body,
+        )
+        if 200 <= status_code < 300:
+            try:
+                return json.loads(raw).get("voice_id")
+            except Exception:
+                return None
+        logger.error("Voice clone failed (%s): %s", status_code, raw[:200])
+        return None
+
+    @classmethod
+    async def create_voice_clone(cls, name: str, audio: bytes) -> Optional[str]:
+        if not settings.voice_configured:
+            return None
+        return await asyncio.to_thread(cls._create_clone_sync, name, audio)
+
     # ── High-level: one utterance, translated and re-spoken ───────────────
     @classmethod
     async def translate_utterance(

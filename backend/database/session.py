@@ -82,6 +82,8 @@ async def init_db():
             # Admin / moderation.
             await _ensure_column(conn, "users", "is_admin", "BOOLEAN NOT NULL DEFAULT FALSE")
             await _ensure_column(conn, "users", "is_banned", "BOOLEAN NOT NULL DEFAULT FALSE")
+            # Voice-clone id for live call translation.
+            await _ensure_column(conn, "users", "voice_id", "VARCHAR(80)")
             # original_text may now be null (encrypted messages carry no plaintext).
             await conn.execute(
                 text("ALTER TABLE direct_messages ALTER COLUMN original_text DROP NOT NULL")

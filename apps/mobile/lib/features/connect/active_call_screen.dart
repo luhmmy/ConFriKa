@@ -1,15 +1,21 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:record/record.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../../core/config.dart';
 import '../../core/network/api_client.dart';
 import '../../core/services/webrtc_service.dart';
+import '../../core/session.dart';
 import '../../core/theme/confrika_theme.dart';
+import 'voice_enroll_screen.dart';
 
 enum CallPhase { dialing, ringing, incoming, connected, ended, failed }
 
@@ -45,6 +51,17 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
   bool _muted = false;
   bool _speaker = false;
 
+  // Live translation panel.
+  final _rec = AudioRecorder();
+  final _player = AudioPlayer();
+  bool _showTranslate = false;
+  bool _voiceEnrolled = false;
+  bool _voiceConfigured = false;
+  bool _capturing = false;
+  bool _translating = false;
+  String _targetLang = 'English';
+  String? _caption;
+
   Timer? _tick;
   Duration _elapsed = Duration.zero;
 
@@ -58,12 +75,27 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
         ? widget.calleeUsername
         : '@${widget.calleeUsername}';
     _phase = widget.incoming ? CallPhase.incoming : CallPhase.dialing;
+    _checkVoice();
     if (!widget.incoming) _startOutgoing();
+  }
+
+  Future<void> _checkVoice() async {
+    try {
+      final s = await _api.voiceStatus();
+      if (mounted) {
+        setState(() {
+          _voiceEnrolled = s['enrolled'] == true;
+          _voiceConfigured = s['voice_service_configured'] == true;
+        });
+      }
+    } catch (_) {}
   }
 
   @override
   void dispose() {
     _tick?.cancel();
+    _rec.dispose();
+    _player.dispose();
     _cleanup();
     super.dispose();
   }
@@ -229,6 +261,63 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
     }
   }
 
+  Future<void> _toggleCapture() async {
+    if (_capturing) {
+      final path = await _rec.stop();
+      setState(() => _capturing = false);
+      if (path != null) await _translateFile(path);
+      return;
+    }
+    if (!await _rec.hasPermission()) return;
+    final dir = await getTemporaryDirectory();
+    await _rec.start(
+      const RecordConfig(encoder: AudioEncoder.wav, sampleRate: 16000, numChannels: 1),
+      path: '${dir.path}/utterance.wav',
+    );
+    setState(() {
+      _capturing = true;
+      _caption = null;
+    });
+  }
+
+  Future<void> _translateFile(String path) async {
+    setState(() => _translating = true);
+    try {
+      final bytes = await File(path).readAsBytes();
+      final res = await _api.translateUtterance(
+        audioBase64: base64Encode(bytes),
+        sourceDialect: ConFriKaSession.instance.primaryDialect,
+        targetDialect: _targetLang,
+      );
+      final text = (res['translated_text'] as String?) ?? '';
+      final audioB64 = res['audio_b64'] as String?;
+      if (mounted) setState(() => _caption = text.isEmpty ? 'No speech detected' : text);
+      if (audioB64 != null && audioB64.isNotEmpty) {
+        await _player.play(BytesSource(base64Decode(audioB64)));
+      }
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _caption = e.message);
+    } finally {
+      if (mounted) setState(() => _translating = false);
+    }
+  }
+
+  Future<void> _openTranslate() async {
+    if (!_voiceConfigured) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Live call translation is being switched on. Try again soon.')));
+      return;
+    }
+    if (!_voiceEnrolled) {
+      await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => const VoiceEnrollScreen(),
+      ));
+      _checkVoice();
+      return;
+    }
+    setState(() => _showTranslate = !_showTranslate);
+  }
+
   String get _statusText {
     switch (_phase) {
       case CallPhase.dialing:
@@ -298,11 +387,75 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
                       fontSize: 16,
                       fontWeight: FontWeight.w500)),
               const Spacer(),
+              if (_showTranslate) _translatePanel(),
               _controls(),
               const SizedBox(height: 40),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _translatePanel() {
+    const langs = ['English', 'French', 'Swahili', 'Yorùbá', 'Igbo', 'Hausa',
+        'Arabic', 'Portuguese', 'Amharic', 'Zulu'];
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              const Text('They hear me in',
+                  style: TextStyle(color: Colors.white70, fontSize: 13)),
+              const SizedBox(width: 10),
+              DropdownButton<String>(
+                value: _targetLang,
+                dropdownColor: const Color(0xFF123B5E),
+                style: const TextStyle(color: Colors.white),
+                underline: const SizedBox.shrink(),
+                items: langs
+                    .map((l) => DropdownMenuItem(value: l, child: Text(l)))
+                    .toList(),
+                onChanged: (v) => setState(() => _targetLang = v ?? _targetLang),
+              ),
+            ],
+          ),
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.symmetric(vertical: 10),
+            padding: const EdgeInsets.all(12),
+            constraints: const BoxConstraints(minHeight: 48),
+            decoration: BoxDecoration(
+                color: Colors.black26, borderRadius: BorderRadius.circular(10)),
+            child: Text(
+              _translating
+                  ? 'Translating…'
+                  : (_caption ?? 'Tap the mic, speak a phrase, then tap again.'),
+              style: const TextStyle(color: Colors.white, fontSize: 14),
+              textAlign: TextAlign.center,
+            ),
+          ),
+          FilledButton.icon(
+            onPressed: _translating ? null : _toggleCapture,
+            style: FilledButton.styleFrom(
+              backgroundColor:
+                  _capturing ? Colors.redAccent : ConFriKaColors.savannaGreen,
+            ),
+            icon: Icon(_capturing ? Icons.stop : Icons.mic),
+            label: Text(_capturing ? 'Stop & translate' : 'Speak a phrase'),
+          ),
+          const SizedBox(height: 4),
+          const Text('Beta · short delay while your phrase is translated',
+              style: TextStyle(color: Colors.white38, fontSize: 11)),
+        ],
       ),
     );
   }
@@ -355,15 +508,10 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
               ),
               _RoundButton(
                 icon: Icons.translate,
-                color: Colors.white24,
-                iconColor: Colors.white,
+                color: _showTranslate ? Colors.white : Colors.white24,
+                iconColor: _showTranslate ? Colors.black : Colors.white,
                 label: 'Translate',
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                    content: Text(
-                        'Live call translation activates once the voice service is connected.'),
-                  ));
-                },
+                onTap: _openTranslate,
               ),
             ],
           ),

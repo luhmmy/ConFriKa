@@ -230,6 +230,37 @@ class ConFriKaApiClient {
     })) as Map<String, dynamic>;
   }
 
+  // ── Live call translation (voice) ─────────────────────────────────────
+  Future<Map<String, dynamic>> voiceStatus() async =>
+      (await _get('/api/v1/calls/voice/status')) as Map<String, dynamic>;
+
+  /// Enroll a voice clone from a recording; returns {status, voice_id}.
+  Future<Map<String, dynamic>> enrollVoice(String wavPath) async {
+    final req = http.MultipartRequest('POST', _uri('/api/v1/calls/voice/enroll'));
+    if (_authToken != null) req.headers['Authorization'] = 'Bearer $_authToken';
+    req.files.add(await http.MultipartFile.fromPath('file', wavPath));
+    final streamed = await req.send().timeout(const Duration(seconds: 60));
+    final res = await http.Response.fromStream(streamed);
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    }
+    _fail(res);
+  }
+
+  /// Translate one spoken utterance; returns source/translated text + audio_b64
+  /// (spoken in the caller's voice when a clone is enrolled).
+  Future<Map<String, dynamic>> translateUtterance({
+    required String audioBase64,
+    required String sourceDialect,
+    required String targetDialect,
+  }) async {
+    return (await _post('/api/v1/calls/translate-utterance', {
+      'audio_b64': audioBase64,
+      'source_dialect': sourceDialect,
+      'target_dialect': targetDialect,
+    })) as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> analyzePitch(String wavPath,
       {double baselineF0Hz = 138.0}) async {
     final req = http.MultipartRequest(
