@@ -221,8 +221,56 @@ class _ProfileAndTrustScreenState extends State<ProfileAndTrustScreen> {
             label: const Text('Sign out'),
           ),
         ),
+        const SizedBox(height: 8),
+        TextButton(
+          onPressed: () => _confirmDeleteAccount(context),
+          child: const Text('Delete my account',
+              style: TextStyle(color: Colors.redAccent)),
+        ),
       ],
     );
+  }
+
+  Future<void> _confirmDeleteAccount(BuildContext context) async {
+    final pwCtrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete account'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('This permanently deletes your account, messages and '
+                'contacts. This cannot be undone.'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: pwCtrl,
+              obscureText: true,
+              decoration: const InputDecoration(
+                  labelText: 'Confirm your password', border: OutlineInputBorder()),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || pwCtrl.text.isEmpty) return;
+    try {
+      await ConFriKaApiClient.instance.deleteAccount(pwCtrl.text);
+      await ConFriKaSession.instance.signOut();
+    } on ApiException catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      }
+    }
   }
 
   Widget _row(IconData icon, String label, String value) => ListTile(

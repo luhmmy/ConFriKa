@@ -178,6 +178,11 @@ class ConFriKaApiClient {
     await _post('/api/v1/auth/me/devices', {'token': token, 'platform': platform});
   }
 
+  /// Permanently delete the signed-in user's account (requires the password).
+  Future<void> deleteAccount(String password) async {
+    await _post('/api/v1/auth/delete-account', {'password': password});
+  }
+
   /// Update reachability/privacy controls. Returns the refreshed user profile.
   Future<Map<String, dynamic>> updatePrivacy({
     String? callsPrivacy,

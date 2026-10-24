@@ -150,6 +150,20 @@ async def register_device(
     return {"status": "registered"}
 
 
+class DeleteAccountRequest(BaseModel):
+    password: str = Field(..., min_length=1, max_length=128)
+
+
+@router.post("/delete-account")
+async def delete_account(
+    req: DeleteAccountRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Permanently delete the signed-in user's account and their data."""
+    return await AuthService.delete_account(db, current_user, req.password)
+
+
 @router.put("/me/privacy")
 async def update_privacy(
     req: UpdatePrivacyRequest,

@@ -407,6 +407,18 @@ class AuthService:
         return {"status": "password_changed"}
 
     @staticmethod
+    async def delete_account(db: AsyncSession, user: User, password: str) -> Dict[str, Any]:
+        """Permanently delete the signed-in user's account after re-auth."""
+        if not verify_password(password, user.password_hash):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Password is incorrect.",
+            )
+        await db.delete(user)  # cascades to the user's messages, contacts, etc.
+        await db.commit()
+        return {"status": "account_deleted"}
+
+    @staticmethod
     async def update_privacy(
         db: AsyncSession, user: User, req: "UpdatePrivacyRequest"
     ) -> Dict[str, Any]:
