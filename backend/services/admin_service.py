@@ -108,6 +108,7 @@ class AdminService:
                 "email_verified": u.email_verified,
                 "is_banned": u.is_banned,
                 "is_admin": u.is_admin,
+                "avatar_url": u.avatar_url,
                 "created_at": u.created_at.isoformat() if u.created_at else None,
             }
             for u in users
